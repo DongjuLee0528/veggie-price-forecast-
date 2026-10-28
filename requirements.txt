@@ -1,0 +1,24 @@
+# Data
+pandas>=2.1
+pyarrow>=14
+numpy>=1.26
+requests>=2.31
+python-dotenv>=1.0
+pyyaml>=6.0
+
+# Models
+lightgbm>=4.3
+statsmodels>=0.14
+shap>=0.45
+scikit-learn>=1.4
+# Time-series deep learning (F-23, install when needed)
+# darts>=0.30
+
+# API
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# Dev
+jupyter
+matplotlib
+pytest

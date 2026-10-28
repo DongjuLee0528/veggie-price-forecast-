@@ -1,0 +1,74 @@
+# Secrets / environment variables
+.env
+.env.*
+!.env.example
+
+# AI agent instruction files
+AGENTS.md
+CLAUDE.md
+.agent-notes/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+*.log
+
+# Java / Spring Boot (Gradle, Maven)
+.gradle/
+**/build/
+!**/src/**/build/
+target/
+out/
+bin/
+*.class
+.mvn/wrapper/maven-wrapper.jar
+HELP.md
+
+# IDE / OS
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Data and results (large, reproducible)
+data/raw/**
+data/interim/**
+data/processed/**
+results/**
+outputs/**
+snapshots/**
+!**/.gitkeep
+*.parquet
+*.zip
+
+# Manual CSVs are tracked (data/manual/*.csv)
+
+# Model artifacts
+*.pkl
+*.joblib
+*.ckpt
+lightning_logs/
+
+# Web (Node)
+node_modules/
+web/dist/
+.vite/
+coverage/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*

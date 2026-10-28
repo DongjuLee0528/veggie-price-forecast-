@@ -1,0 +1,43 @@
+# Item settings (see Notion pages 03 and 06)
+items:
+  배추:
+    type: fresh
+    match: {pdlt_nm: "배추"}                  # all varieties combined
+    kamis_csv: "배추"
+    hsk: ["0704902000"]
+    stations:
+      - {months: [6, 7, 8, 9], ids: [100, 216]}               # Daegwallyeong, Taebaek
+      - {months: [10, 11, 12, 1, 2, 3, 4, 5], ids: [261]}     # Haenam
+  무:
+    type: fresh
+    match: {pdlt_nm: "무"}
+    kamis_csv: "무"
+    hsk: ["0706901000"]
+    stations:
+      - {months: [6, 7, 8, 9], ids: [100, 216]}
+      - {months: [10, 11, 12, 1, 2, 3, 4, 5], ids: [184, 189]} # Jeju, Seogwipo
+  양파:
+    type: storage
+    match: {pdlt_nm: "양파"}
+    kamis_csv: "양파"
+    hsk: ["0703101010", "0703101090"]
+    stations: [{months: all, ids: [165, 285, 288]}]           # Mokpo, Hapcheon, Miryang
+  깐마늘:
+    type: storage
+    match: {pdlt_nm: "마늘", spcs_contains: "깐"}             # peeled garlic only
+    kamis_csv: "깐마늘(국산)"
+    hsk: ["0703201000", "0703209000", "0710802000"]
+    stations: [{months: all, ids: [288, 262, 185]}]           # Miryang, Goheung, Gosan
+  건고추:
+    type: storage
+    match: {pdlt_nm: "건고추"}                 # sun-dried and machine-dried combined
+    kamis_csv: "건고추"
+    hsk: ["0904210000", "0904220000"]
+    stations: [{months: all, ids: [136, 271, 272, 278]}]      # Andong, Bonghwa, Yeongju, Uiseong
+
+trade_country: CN
+ecos:
+  table: "731Y001"
+  cycle: "D"
+  items: {usd: "0000001", cny: "0000053"}
+collect_start: "2019-01-01"

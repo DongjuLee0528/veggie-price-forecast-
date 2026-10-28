@@ -1,0 +1,22 @@
+# Feature and publication-lag settings (see Notion page 04; finalize after validation)
+base_price_window: 7          # base price = mean of last 7 trading days
+horizons_short: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+horizons_mid: [2, 3]          # 2 and 3 dekads ahead
+
+publish_lag:                  # latest value usable at forecast date t
+  price: 0                    # up to day t
+  weather: 1                  # up to day t-1
+  fx: 1                       # up to day t-1
+  trade_months: 2             # up to the month two months before t
+  outlook: release_date
+  policy: release_date
+
+features:
+  price: [lag_1, lag_5, lag_10, lag_20, ma7_ma28_ratio, ret_7, ret_28, vol_28, yoy]
+  supply: [volume_ratio_7_28, volume_yoy]
+  weather: [temp_anom_14, rain_sum_14, rain_anom_30, sun_sum_14, heat_days_30, cold_days_30]
+  trade: [import_ratio_12m]
+  fx: [fx_cny_ret_30, fx_usd_ret_30]
+  calendar: [days_to_seollal, days_to_chuseok, is_kimjang, month, dow]
+  policy: [policy_flag_30]
+  outlook: [outlook_supply_yoy]
