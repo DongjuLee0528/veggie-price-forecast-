@@ -30,3 +30,13 @@ cp .env.example .env   # 인증키 입력
 | `api/` | FastAPI |
 | `web/` | 가격예보 화면 (React + TypeScript) |
 | `results/`, `outputs/`, `snapshots/` | 백테스트 결과, 예측 JSON, 회차별 스냅샷 (Git 제외) |
+
+## Price outlier policy
+
+- Preserve raw settlement records; do not guess corrected prices or weights.
+- Exclude only the 19 reviewed suspect trades: 12 dried pepper trades in `REVIEWED_PEPPER_TRADES` (Jinju, variety 건고추(일반), 0.6 kg) and seven peeled garlic trades (2024-04-11, Busan Banyeo, variety 깐마늘 남도, 500 kg).
+- `src/preprocess/price_review.py` identifies these trades and recomputes daily prices as total transaction amount divided by total weight. New matching suspects remain `review_only` until reviewed.
+- Do not apply item/year 1st–99th percentile filtering. Any future statistical thresholds must be evaluated using training-period information only.
+- Keep excluded records, reasons and before/after comparisons in `data/interim/price_review/`. The current `exclude_trial` label and trial filename remain until the final cleaned dataset is generated.
+- Reproduce the comparison with `python -m src.preprocess.price_review`. This does not overwrite raw data.
+- These exclusions were selected retrospectively; report this limitation when evaluating historical forecasts.
