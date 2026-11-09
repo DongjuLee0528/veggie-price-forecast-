@@ -2,7 +2,7 @@
 items:
   배추:
     type: fresh
-    match: {pdlt_nm: "배추"}                  # all varieties combined
+    match: {pdlt_nm: "배추", spcs_excludes: ["쌈", "뿌리", "우거지", "절임", "배양채", "수입"]}                  # all varieties combined
     kamis_csv: "배추"
     hsk: ["0704902000"]
     stations:
@@ -10,7 +10,7 @@ items:
       - {months: [10, 11, 12, 1, 2, 3, 4, 5], ids: [261]}     # Haenam
   무:
     type: fresh
-    match: {pdlt_nm: "무"}
+    match: {pdlt_nm: "무", spcs_excludes: ["말랭이", "건무", "단무지", "달랑", "다발", "솎음", "소궁기", "자색", "수입"]}
     kamis_csv: "무"
     hsk: ["0706901000"]
     stations:
@@ -18,19 +18,19 @@ items:
       - {months: [10, 11, 12, 1, 2, 3, 4, 5], ids: [184, 189]} # Jeju, Seogwipo
   양파:
     type: storage
-    match: {pdlt_nm: "양파"}
+    match: {pdlt_nm: "양파", spcs_excludes: ["깐양파", "자주", "수입"]}
     kamis_csv: "양파"
     hsk: ["0703101010", "0703101090"]
     stations: [{months: all, ids: [165, 285, 288]}]           # Mokpo, Hapcheon, Miryang
   깐마늘:
     type: storage
-    match: {pdlt_nm: "마늘", spcs_contains: "깐"}             # peeled garlic only
+    match: {pdlt_nm: "마늘", spcs_contains: "깐마늘", spcs_excludes: ["수입"]}             # peeled garlic only
     kamis_csv: "깐마늘(국산)"
     hsk: ["0703201000", "0703209000", "0710802000"]
     stations: [{months: all, ids: [288, 262, 185]}]           # Miryang, Goheung, Gosan
   건고추:
     type: storage
-    match: {pdlt_nm: "건고추"}                 # sun-dried and machine-dried combined
+    match: {pdlt_nm: "건고추", spcs_excludes: ["수입"]}                 # sun-dried and machine-dried combined
     kamis_csv: "건고추"
     hsk: ["0904210000", "0904220000"]
     stations: [{months: all, ids: [136, 271, 272, 278]}]      # Andong, Bonghwa, Yeongju, Uiseong
