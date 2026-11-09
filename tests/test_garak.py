@@ -7,6 +7,11 @@ import requests
 from src.collect.garak import fetch_day, parse_day
 
 
+@pytest.fixture(autouse=True)
+def skip_retry_delays(monkeypatch):
+    monkeypatch.setattr('src.collect.garak.time.sleep', lambda seconds: None)
+
+
 DAY = pd.Timestamp('2024-04-11')
 
 
@@ -98,4 +103,32 @@ def test_empty_non_json_is_not_assumed_success():
     result.json.side_effect = ValueError('bad')
     session.get.return_value = result
     with pytest.raises(RuntimeError, match='kind=empty'):
+        fetch_day(DAY, session, 'dummy-id', 'dummy-password')
+
+
+def test_transient_html_retries_same_page():
+    session = Mock()
+    bad = Mock(status_code=200, content=b'<html>temporary</html>')
+    bad.json.side_effect = ValueError('not json')
+    session.get.side_effect = [bad, response([{'x': 1}])]
+    assert fetch_day(DAY, session, 'dummy-id', 'dummy-password') == [{'x': 1}]
+    assert session.get.call_count == 2
+    assert session.get.call_args_list[0].kwargs['params'] == session.get.call_args_list[1].kwargs['params']
+
+
+def test_confirmed_html_empty_result_ends_pagination():
+    session = Mock()
+    empty = Mock(status_code=200, content="<html>{ LIST_COUNT: 0, ApiErrorMsg:데이터가 없습니다.}</html>".encode())
+    empty.json.side_effect = ValueError('html')
+    session.get.side_effect = [response([{'x': n} for n in range(100)]), empty]
+    assert len(fetch_day(DAY, session, 'dummy-id', 'dummy-password')) == 100
+    assert session.get.call_count == 2
+
+
+def test_html_error_with_nonzero_count_is_not_empty():
+    session = Mock()
+    error = Mock(status_code=200, content="<html>{ LIST_COUNT: 1, ApiErrorMsg:데이터가 없습니다.}</html>".encode())
+    error.json.side_effect = ValueError('html')
+    session.get.return_value = error
+    with pytest.raises(RuntimeError):
         fetch_day(DAY, session, 'dummy-id', 'dummy-password')

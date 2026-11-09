@@ -1,5 +1,7 @@
 import argparse
 import json
+import re
+import time
 from pathlib import Path
 
 import numpy as np
@@ -15,22 +17,33 @@ MATCHES = {'배추': ('엽채류', '배추'), '무': ('근채류', '무'), '양�
 OUTPUT = Path(__file__).resolve().parents[2] / 'data/raw/volume'
 
 
+def request_page(day, page, session, params, collected_rows):
+    for attempt in range(3):
+        try:
+            response = session.get(ENDPOINT, params=params, timeout=30, allow_redirects=False)
+            if response.status_code != 200:
+                raise RuntimeError(f'Garak HTTP {response.status_code}')
+            try:
+                return response.json()
+            except ValueError:
+                body = response.content
+                text = body.decode('utf-8', errors='replace')
+                if re.search(r'LIST_COUNT\s*:\s*0\s*[,}]', text) and re.search(r'ApiErrorMsg\s*:\s*데이터가 없습니다\.', text):
+                    return {'resultData': []}
+                kind = 'empty' if not body.strip() else ('html' if body.lstrip().lower().startswith((b'<!doctype html', b'<html')) else 'other')
+                raise RuntimeError(f'Garak returned non-JSON content; kind={kind}, bytes={len(body)}') from None
+        except (requests.RequestException, RuntimeError) as error:
+            message = type(error).__name__ if isinstance(error, requests.RequestException) else str(error)
+            if attempt == 2:
+                raise RuntimeError(f'{message}; date={day.date()}, page={page}, collected_rows={collected_rows}, attempts=3; id=***&passwd=***') from None
+            time.sleep(2 ** attempt)
+
+
 def fetch_day(day, session, user_id, password):
     records, seen = [], set()
     for page in range(1, 101):
         params = {'id': user_id, 'passwd': password, 'dataid': 'data20', 'pagesize': 100, 'pageidx': page, 'portal.templet': 'false', 'date': day.strftime('%Y%m%d')}
-        try:
-            response = session.get(ENDPOINT, params=params, timeout=30, allow_redirects=False)
-        except requests.RequestException as error:
-            raise RuntimeError(f'Garak connection failed ({type(error).__name__}) for {day.date()}, page {page}; id=***&passwd=***') from None
-        if response.status_code != 200:
-            raise RuntimeError(f'Garak HTTP {response.status_code} for {day.date()}, page {page}; id=***&passwd=***')
-        try:
-            payload = response.json()
-        except ValueError:
-            body = response.content
-            kind = 'empty' if not body.strip() else ('html' if body.lstrip().lower().startswith((b'<!doctype html', b'<html')) else 'other')
-            raise RuntimeError(f'Garak returned non-JSON content for {day.date()}, page {page}; kind={kind}, bytes={len(body)}, collected_rows={len(records)}; id=***&passwd=***') from None
+        payload = request_page(day, page, session, params, len(records))
         if not isinstance(payload, dict) or not isinstance(payload.get('resultData'), list):
             raise ValueError(f'Invalid Garak response for {day.date()}, page {page}')
         rows = payload['resultData']
