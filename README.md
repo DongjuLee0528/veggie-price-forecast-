@@ -40,3 +40,10 @@ cp .env.example .env   # 인증키 입력
 - Keep excluded records, reasons and before/after comparisons in `data/interim/price_review/`. The current `exclude_trial` label and trial filename remain until the final cleaned dataset is generated.
 - Reproduce the comparison with `python -m src.preprocess.price_review`. This does not overwrite raw data.
 - These exclusions were selected retrospectively; report this limitation when evaluating historical forecasts.
+
+Generate the cleaned daily dataset with `python -m src.preprocess.clean_prices`.
+The output is `data/interim/price/settlement_daily_clean.parquet`, accompanied by
+`excluded_rows.csv`, `review_only_rows.csv`, `daily_comparison.csv` and
+`validation.json`. Load it with
+`load_prices("data/interim/price/settlement_daily_clean.parquet")` from
+`src.collect.price`; the loader's default still points to raw data.
