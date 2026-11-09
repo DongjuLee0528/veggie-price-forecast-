@@ -64,3 +64,19 @@ Observed future dates are used for retrospective scoring only, not as a live
 trading-calendar forecast. Missing prior-year prices are not imputed. Scores
 averaged across item/horizon cells are macro averages. Retrospectively selected
 cleaning exclusions remain a limitation. No learned model or interval is fitted.
+
+## Garak pre-auction arrivals (F-02)
+
+The command loads the project `.env` at runtime without printing credentials.
+Existing process environment variables take precedence. Run a one-day check before a historical collection:
+`python -m src.collect.garak --start 2024-04-11 --end 2024-04-11`.
+After checking the real response, collect from 2021-01-01 with an explicit end date.
+Daily `data/raw/volume/garak_YYYYMMDD.parquet` files support resuming; existing
+files are read, not overwritten. Missing items/days remain NaN with a status;
+absence is not assumed to mean zero or market closure. A reported zero is kept.
+Garlic arrivals include both peeled and unpeeled garlic; `source_item` records
+this distinction from the peeled-garlic price target. Exact category/item matching
+excludes related vegetables and category totals. API/network errors stop the run.
+No data before 2021 is fabricated; the later merge must retain 2020 as NaN.
+The implementation follows the Notion F-02 response contract. Live response
+schema, HTTPS endpoint and authentication still require the one-day check.
