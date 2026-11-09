@@ -47,3 +47,20 @@ The output is `data/interim/price/settlement_daily_clean.parquet`, accompanied b
 `validation.json`. Load it with
 `load_prices("data/interim/price/settlement_daily_clean.parquet")` from
 `src.collect.price`; the loader's default still points to raw data.
+
+## Short-term baseline evaluation
+
+Run `python -m src.evaluate.backtest` to evaluate the three arithmetic baselines
+at origins spaced ten observed trading days apart per item. Horizons are the next
+1–10 observed trading days. Validation origins and targets stay in 2024; test
+origins start in 2025. Earlier observations remain available as history. No
+parameters are fitted, so a training-label gap is not applicable to these rules.
+Results are in `results/baseline/`: `backtest.parquet`, split metric CSVs and
+`common_sample_metrics.csv` (only samples predicted by all three rules).
+NMAE is mean absolute error divided by each actual price; direction uses the
+seven-trading-day base price, with unchanged counted as a separate direction.
+`coverage` is the fraction of available point predictions, not interval coverage.
+Observed future dates are used for retrospective scoring only, not as a live
+trading-calendar forecast. Missing prior-year prices are not imputed. Scores
+averaged across item/horizon cells are macro averages. Retrospectively selected
+cleaning exclusions remain a limitation. No learned model or interval is fitted.
