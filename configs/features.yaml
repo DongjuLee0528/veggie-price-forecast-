@@ -14,7 +14,7 @@ publish_lag:                  # latest value usable at forecast date t
 features:
   price: [lag_1, lag_5, lag_10, lag_20, ma7_ma28_ratio, ret_7, ret_28, vol_28, yoy]
   supply: [volume_ratio_7_28, volume_yoy]
-  weather: [temp_anom_14, rain_sum_14, rain_anom_30, sun_sum_14, heat_days_30, cold_days_30]
+  weather: [temp_anom_14, sun_sum_14, heat_days_30, cold_days_30]
   trade: [import_ratio_12m]
   fx: [fx_cny_ret_30, fx_usd_ret_30]
   calendar: [days_to_seollal, days_to_chuseok, is_kimjang, month, dow]
@@ -24,3 +24,9 @@ features:
 calendar_rules:
   kimjang_start: '11-01'
   kimjang_end: '12-10'
+
+weather_missing_policy:
+  rain_blank: preserve_nan
+  rain_features_enabled: false
+  deferred_rain_features: [rain_sum_14, rain_anom_30]
+  reason: daily_api_blank_rain_cannot_distinguish_dry_day_from_missing_observation

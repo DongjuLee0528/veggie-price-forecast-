@@ -199,3 +199,17 @@ Integration availability update:
   per import form. No release date is inferred by assuming every month uses day 15.
 - Missing rainfall remains NaN in both station and regional tables, with station
   observation counts. It is not converted to zero or silently averaged away.
+
+## First-training rainfall decision
+
+The daily API sample for station 100, January 2024 contains both explicit
+`sumRn=0.0` and blank `sumRn`, without a rain QC flag in that response. Other
+rain/event fields are often blank too. This does not establish that all blank
+values are dry days or that every API/station lacks quality information.
+No official blanket blank-to-zero rule was established. Therefore reported zeros
+stay zero, blanks stay NaN, and `rain_sum_14` / `rain_anom_30` are removed from
+active weather features and listed as deferred in `configs/features.yaml`.
+Rain source columns remain available for later verified enrichment; no weather
+raw or integrated data are overwritten by this decision. The eventual feature
+builder must use the active feature list. No training has been run.
+Audit: `data/interim/weather/rain_policy_review.json`.
