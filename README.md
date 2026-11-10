@@ -166,3 +166,21 @@ Customs QA conclusion: all 35 source batches were checked; ten differ by 1–2 k
 unaltered monthly detail sums, retain source totals and audit differences. The
 underlying rounding/revision cause is not established; this is a documented
 source limitation, not a correction or a claim of exact reconciliation.
+
+## First-pass integration (F-11)
+
+Run `python -m src.preprocess.merge`. Output:
+`data/interim/integrated/daily.parquet`, `missing_by_item.csv`, `validation.json`.
+The table retains only actual price trading dates and preserves price/volume
+values. Arrivals join on the same day; weather uses the prior calendar day and
+seasonal station rules for that source day. Regional averages require every
+selected station value; counts remain available. FX uses the prior calendar day
+without filling unpublished values. Trade forms join the month two months before
+the price date. Calendar joins exclude historical is_holiday because announcement
+vintages are not verified. Empty manual outlook/policy inputs are omitted for the
+first pass, without dummy values; nonempty manual files cause a review error.
+Date cutoffs are tested, but trade release timing is an assumption and retrieved
+historical revisions are not point-in-time vintages. This is an integration table,
+not final model features/targets. Complete rainfall windows cannot yet be assumed
+because blank rain values remain unknown. Separate form imports have no arbitrary
+weights. Full F-11 manual-source support and release-date QA remain outstanding.
