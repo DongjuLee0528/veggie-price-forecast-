@@ -184,3 +184,18 @@ historical revisions are not point-in-time vintages. This is an integration tabl
 not final model features/targets. Complete rainfall windows cannot yet be assumed
 because blank rain values remain unknown. Separate form imports have no arbitrary
 weights. Full F-11 manual-source support and release-date QA remain outstanding.
+
+Integration availability update:
+- FX now selects each currency's latest nonmissing observation at or before t-1,
+  retaining its actual source date and age. Raw FX gaps remain unchanged. No
+  future fill is used; long gaps are visible through age and are not certified
+  as healthy market closures.
+- `configs/trade_releases.csv` lists all 81 source months. Official release dates
+  verified for 2026-08 and 2026-09 are used from the next calendar day because
+  intraday availability is unknown. The other 79 months explicitly retain the
+  two-month availability assumption; these are not verified release dates.
+  Report release timing does not establish the original vintage of today's
+  detailed HSK API values. Source date, availability date and basis are retained
+  per import form. No release date is inferred by assuming every month uses day 15.
+- Missing rainfall remains NaN in both station and regional tables, with station
+  observation counts. It is not converted to zero or silently averaged away.

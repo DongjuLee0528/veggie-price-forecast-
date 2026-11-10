@@ -37,3 +37,37 @@ def test_missing_selected_station_not_silently_averaged():
     row=result[result.item.eq('배추')&result.weather_source_date.eq('2024-06-01')].iloc[0]
     assert pd.isna(row.rain_mm)
     assert row.rain_mm_stations_observed==1
+
+
+def test_fx_last_published_only_and_age():
+    from src.preprocess.merge import join_fx
+    dates=pd.DataFrame({'date':pd.to_datetime(['2024-06-02','2024-06-03'])})
+    fx=pd.DataFrame({'date':pd.to_datetime(['2024-05-31','2024-06-01','2024-06-03']), 'krw_per_usd':[100.,float('nan'),999.]})
+    result=join_fx(dates,fx,1)
+    assert result.krw_per_usd.eq(100.).all()
+    assert result.krw_per_usd_age_days.tolist()==[2,3]
+
+
+def test_trade_release_boundary_and_no_future():
+    args=list(sources())
+    releases=pd.DataFrame({'month':pd.to_datetime(['2024-04-01','2024-05-01']), 'available_on':pd.to_datetime(['2024-06-01','2024-06-02']), 'basis':['assumed_two_month_lag','verified_release_next_day']})
+    result=merge_sources(*args,releases=releases)
+    onion=result[result.item.eq('양파')].sort_values('date')
+    assert onion.import_onion_kg.tolist()==[10.,999.]
+    assert onion.trade_onion_available_on.le(onion.date).all()
+
+
+def test_rain_nan_preserved_in_merged_table():
+    args=list(sources())
+    args[2]['rain_mm']=float('nan')
+    result=merge_sources(*args)
+    assert result.rain_mm.isna().all()
+
+
+def test_mixed_date_precision():
+    args=list(sources())
+    args[0]['date']=args[0].date.astype('datetime64[ns]')
+    args[3]['date']=args[3].date.astype('datetime64[us]')
+    result=merge_sources(*args)
+    assert len(result)==10
+    assert result.krw_per_usd.notna().all()
