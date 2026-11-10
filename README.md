@@ -150,3 +150,19 @@ batches have 1–2 kg total/detail discrepancies; USD totals match. The discrepa
 cause is unresolved and values are not adjusted. Publication lag and historical
 revisions must still be addressed in integration.
 Source: https://www.data.go.kr/data/15100475/openapi.do
+
+## ECOS exchange rates (F-05)
+
+Run `python -m src.collect.ecos --start 2020-01-01 --end 2026-11-09`.
+The collector uses configured 731Y001 daily USD/CNY series and stores yearly
+observations under `data/raw/fx/`, with unfilled calendar-day data under
+`data/interim/fx/fx_daily.parquet`. Values are KRW per one USD/CNY; series name,
+code and unit are retained in raw files. Existing yearly ranges are resumed.
+Missing dates are not filled here; t-1 availability and backward-only carry
+forward, if used, belong to integration. No exchange-rate forecasting is done.
+
+Customs QA conclusion: all 35 source batches were checked; ten differ by 1–2 kg
+(maximum relative difference below 0.000064%), while USD totals match. Use the
+unaltered monthly detail sums, retain source totals and audit differences. The
+underlying rounding/revision cause is not established; this is a documented
+source limitation, not a correction or a claim of exact reconciliation.
