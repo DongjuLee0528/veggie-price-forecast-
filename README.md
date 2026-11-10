@@ -256,3 +256,52 @@ as `base_price * (1 + predicted_return)`. Keep test data untouched during tuning
 compare with baselines on the same retained dates/horizons. Training execution
 and model choice will be guided separately. Known release-date/vintage and
 retrospective price-cleaning limits remain; date tests do not remove them.
+
+## First LightGBM training (run locally yourself)
+
+Run `python -m src.models.train_lgbm`. The assistant has not run actual training.
+This fits five item-specific direct multi-horizon short-term models twice: with
+and without arrivals features (10 fits). Each fit uses at most 500 boosting
+rounds, with early stopping after 50 rounds without validation L1 improvement.
+There are no neural-network epochs. Two CPU threads and seed 42 are used.
+2020–2023 samples train the model; 2024 samples select the stopping round and
+produce comparison metrics. `test.parquet` is never loaded. Therefore validation
+results are tuning results, not final unbiased test performance.
+
+Every 10 rounds a Booster checkpoint is written to
+`results/lgbm_first/checkpoints/`; use `--checkpoint-every 5` for five-round saves.
+The terminal shows model number, round/maximum and validation error, while
+`progress.json` records current progress and model completion. Early stopping
+means round/500 is not an accurate overall percentage. Intermediate checkpoints
+are inspection snapshots; automatic interruption recovery is not implemented.
+Completed best models remain separate `.txt` files, with features/item mapping
+and best rounds in `run.json`. Existing output directories are not overwritten;
+use e.g. `--output results/lgbm_second` for a new run.
+
+Results include `comparison.csv` (item/model macro averages across horizons on
+common samples), `metrics_by_item_horizon.csv`, `common_sample_metrics.csv` and
+`validation_predictions.parquet`. Baselines are recomputed on exactly the same
+validation origins/targets; missing year-ago predictions reduce the common
+sample. NMAE 0.10 means mean absolute relative error 10%, not accuracy 90%.
+RMSE is KRW/kg; direction is relative to the seven-day base price. Validation
+L1 during training measures change-rate error and is distinct from price NMAE.
+Negative reconstructed predictions are counted in run metadata, never clipped.
+No rainfall, dummy/manual features, scaling or imputation are introduced.
+
+## Frozen final short-term evaluation
+
+`python -m src.evaluate.final_test` first freezes the lowest 2024 validation
+macro-NMAE LightGBM variant per item, recording model file hashes before reading
+`test.parquet`. It loads saved best models only and never fits or changes them.
+Results are in `results/lgbm_final_test/`, including `frozen_selection.json`,
+`test_predictions.parquet`, `metrics_by_item_horizon.csv`, `comparison.csv` and
+`evaluation.json`. Existing output is refused to preserve the original result.
+The comparison uses identical test samples for selected LightGBM, last price and
+seven-trading-day mean. It evaluates static models trained on 2020–2023, not a
+rolling retraining system. Of five items, only dried pepper beats both simple
+baselines on test macro NMAE; do not choose new variants based on this test and
+report their score as an untouched final result. Future experiments need an
+explicit revised validation protocol or new holdout. Existing source-vintage and
+retrospective-cleaning limitations remain. Earlier exploratory baseline-only
+reports also included this period; this is a frozen model comparison, not a claim
+that the entire historical test period had never been inspected.
