@@ -128,13 +128,25 @@ using today's holiday list in retrospective forecasts. Future lists may change.
 ## Customs imports (F-04)
 
 Run `python -m src.collect.customs --start 2020-01 --end 2026-09`.
-The HTTPS collector uses configured storage-item HSK codes and CN, saving yearly
-code-level Parquet files under `data/raw/trade/`. Monthly kg/USD aggregates and
-HSK coverage are under `data/interim/trade/`. Empty responses remain unknown,
-not zero; totals are NaN if any component code has no monthly record. Raw code
-files retain HSK strings. Publication lag is applied later, not in collection.
-The configured onion codes have no 2020–2021 records; historical HSK revisions
-must be checked before treating this as complete coverage. Some garlic-code
-months also lack records. Garlic includes unpeeled/frozen imports and pepper
-includes powder: these are supply proxies, not exact price-target equivalents.
+The HTTPS collector queries parent headings for onions and fresh/chilled garlic,
+and exact codes for frozen garlic, dried pepper and powder. Only allowed onion
+leaf codes (0703101000/0703101010/0703101090) are summed; shallots and green onions
+are excluded. Parent detail records are checked against the API grand total.
+Code-level absence within a returned parent month is not converted into a missing
+whole-item total. Entirely absent selected months remain NaN.
+Original yearly code-level files remain unchanged; new source XML and leaf-level
+Parquet files are in `data/raw/trade/parent_v1/`. Raw XML is checked for embedded
+credentials before saving. `data/interim/trade/imports_monthly.parquet` contains
+physical-weight totals; `imports_by_form.parquet` keeps fresh/chilled garlic and
+frozen garlic separate, as well as dried pepper and powder. No fresh-equivalent
+yield or causal price-impact weights are applied. Use separate form features
+before considering weights, chosen on validation data only.
+`parent_reconciliation.csv` records exact matches and source-total differences.
+Differences no larger than (detail row count + 1)/2 units are retained and flagged
+as potentially compatible with integer rounding; this is an explicit review
+assumption, not verified source rounding policy. Larger differences stop the run.
+The 2020-01..2026-09 run has 243 complete item-month totals. Ten of 35 source
+batches have 1–2 kg total/detail discrepancies; USD totals match. The discrepancy
+cause is unresolved and values are not adjusted. Publication lag and historical
+revisions must still be addressed in integration.
 Source: https://www.data.go.kr/data/15100475/openapi.do
