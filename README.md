@@ -213,3 +213,46 @@ Rain source columns remain available for later verified enrichment; no weather
 raw or integrated data are overwritten by this decision. The eventual feature
 builder must use the active feature list. No training has been run.
 Audit: `data/interim/weather/rain_policy_review.json`.
+
+## First training dataset: features, targets and splits
+
+Regenerate with `python -m src.features.build`. This prepares data only; it does
+not train a model. Outputs under `data/processed/`:
+- `features.parquet`: date/item rows and active feature columns.
+- `targets.parquet`: future prices and change-rate labels, including unavailable
+  warm-up labels as NaN; never use target columns as model inputs.
+- `train.parquet`, `validation.parquet`, `test.parquet`: long-format supervised
+  samples for short horizons 1–10 and mid-term horizons 2/3, identified by `term`.
+- `manifest.json`: exact model input allowlist, categories, target and definitions.
+- `split_counts.csv`, `feature_missing_rates.csv`, `validation.json`: audit files.
+
+Train origins are 2020–2023, validation 2024, test 2025 onward. Short-term origins
+in the final ten item-specific trading observations before each boundary are
+purged. Mid-term origins in the final three dekads are purged. Every retained
+label period must end before the next split. Labels with unavailable base prices
+or unfinished future periods are removed; other feature NaNs remain. No random
+split, scaler, imputer, tuning or model fitting is performed.
+
+The base price includes the current and preceding six price-trading observations.
+Short labels are actual price at the next h observed item-trading dates divided
+by base price minus one. Mid labels are the arithmetic average of daily prices
+in dekads k=2/3 after the origin's dekad, divided by base price minus one; only
+completed calendar periods are used. Price restoration is checked numerically.
+
+Price lag ratios use the base price; price change/volatility windows use trading
+observations. Price/supply yoy requires the exact previous-calendar-year date.
+Supply 7/28 ratios use the last 7/28 nonmissing arrival observations on price
+trading dates; missing observations are never assumed zero. Weather windows use
+calendar days ending at t-1 and require all window values. Temperature anomalies
+use strictly earlier years' same-month mean (not official climate normals).
+Heat/cold thresholds are 33/-12 C. FX returns span 30 calendar days using prior
+available rates. Import ratios use a complete 12-month mean per form at the
+selected source month, with forms separate. Missing features remain NaN.
+
+For later training, filter `term` first, then select only `manifest.input_columns`
+for X and `target_return` for y. Cast `item` and `item_type` to consistent pandas
+categories; `horizon` is included for a direct multi-horizon model. Restore price
+as `base_price * (1 + predicted_return)`. Keep test data untouched during tuning;
+compare with baselines on the same retained dates/horizons. Training execution
+and model choice will be guided separately. Known release-date/vintage and
+retrospective price-cleaning limits remain; date tests do not remove them.
