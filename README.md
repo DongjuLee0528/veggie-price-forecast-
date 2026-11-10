@@ -124,3 +124,17 @@ are not festival anchors. Kimjang is a modeling interval, November 1–December 
 configured in `configs/features.yaml`, not a regional observation.
 Historical temporary/substitute holiday announcements must be checked before
 using today's holiday list in retrospective forecasts. Future lists may change.
+
+## Customs imports (F-04)
+
+Run `python -m src.collect.customs --start 2020-01 --end 2026-09`.
+The HTTPS collector uses configured storage-item HSK codes and CN, saving yearly
+code-level Parquet files under `data/raw/trade/`. Monthly kg/USD aggregates and
+HSK coverage are under `data/interim/trade/`. Empty responses remain unknown,
+not zero; totals are NaN if any component code has no monthly record. Raw code
+files retain HSK strings. Publication lag is applied later, not in collection.
+The configured onion codes have no 2020–2021 records; historical HSK revisions
+must be checked before treating this as complete coverage. Some garlic-code
+months also lack records. Garlic includes unpeeled/frozen imports and pepper
+includes powder: these are supply proxies, not exact price-target equivalents.
+Source: https://www.data.go.kr/data/15100475/openapi.do
