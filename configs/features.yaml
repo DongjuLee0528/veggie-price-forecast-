@@ -20,3 +20,7 @@ features:
   calendar: [days_to_seollal, days_to_chuseok, is_kimjang, month, dow]
   policy: [policy_flag_30]
   outlook: [outlook_supply_yoy]
+
+calendar_rules:
+  kimjang_start: '11-01'
+  kimjang_end: '12-10'

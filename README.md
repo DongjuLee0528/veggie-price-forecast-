@@ -112,3 +112,15 @@ semantics have not been established. Official ASOS information:
 https://data.kma.go.kr/data/grnd/selectAsosList.do?pgmNo=36
 The current default validation range is 2020-01-01 through 2026-11-08; pass explicit
 start/end dates to `load_weather` for other ranges.
+
+## Demand calendar (F-06)
+
+Run `python -m src.collect.calendar --start-year 2019 --end-year 2027`.
+Yearly holiday source records are stored in `data/raw/calendar/`; daily features
+are in `data/interim/calendar/calendar_daily.parquet`. Exact three-day Seollal
+and Chuseok blocks are required; their middle date anchors the countdown, with
+zero on the festival and NaN beyond the last known festival. Substitute holidays
+are not festival anchors. Kimjang is a modeling interval, November 1–December 10,
+configured in `configs/features.yaml`, not a regional observation.
+Historical temporary/substitute holiday announcements must be checked before
+using today's holiday list in retrospective forecasts. Future lists may change.
