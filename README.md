@@ -80,3 +80,35 @@ excludes related vegetables and category totals. API/network errors stop the run
 No data before 2021 is fabricated; the later merge must retain 2020 as NaN.
 The implementation follows the Notion F-02 response contract. Live response
 schema, HTTPS endpoint and authentication still require the one-day check.
+
+Garak validation (2021-01-01 through 2026-11-08): 2,138 daily files and 10,690
+rows, no missing date files or duplicate date/item keys. Cabbage, radish and
+onion are entirely missing in 2021–2022; two sampled original API responses
+contained no corresponding items in their categories. Keep these values NaN;
+the API's full historical provision policy is not confirmed. The first observed
+date for these three items is 2023-01-03.
+
+## ASOS daily weather (F-03)
+
+Run a one-station smoke check with
+`python -m src.collect.asos --start 2024-01-01 --end 2024-01-02 --station 100`.
+After validating the live response, run
+`python -m src.collect.asos --start 2020-01-01 --end 2026-11-08`.
+The command loads `DATA_GO_KR_KEY` at runtime without printing it. Fourteen unique
+configured stations are collected by month, with resumable files in
+`data/raw/weather/`. Records retain station-level daily mean/max/min temperature
+(Celsius), precipitation (mm) and sunshine (hours). Blank observations remain NaN,
+not zero. Dates absent from the response are represented with `observed=False`;
+this is coverage tracking, not a claim that the station supplied data. Seasonal
+station selection, regional averaging and t-1 publication lag belong to the later
+merge stage. Source: Korea Meteorological Administration, ASOS daily data.
+
+Consolidate validated station-level weather with `python -m src.preprocess.weather`.
+Outputs: `data/interim/weather/asos_daily.parquet` and `missing_summary.csv`.
+The loader removes identical overlapping records but rejects conflicting values
+or missing station/date rows. Source-missing rows and all blank fields remain
+NaN; no blanket zero-fill is applied to precipitation because the API blank-value
+semantics have not been established. Official ASOS information:
+https://data.kma.go.kr/data/grnd/selectAsosList.do?pgmNo=36
+The current default validation range is 2020-01-01 through 2026-11-08; pass explicit
+start/end dates to `load_weather` for other ranges.
