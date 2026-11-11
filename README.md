@@ -329,3 +329,56 @@ re-evaluation or automatic winning-model promotion occurs. This compares input
 sets and direct horizons, not the isolated causal effect of extra exclusions.
 The prior final test has already been inspected; a new independent final claim
 requires future untouched data or a predefined new evaluation protocol.
+
+## Local forecast dashboard
+
+The development setup uses the in-memory H2 profile. The Python export validates
+that `predictions.csv` and `forecast.json` contain the same forecast rows. Spring
+loads the seed CSVs at startup, and the web app requests the data through `/api`.
+
+With the processed data and stored experiment and production models available,
+generate the retrospective comparison and the dashboard inputs from the project root:
+
+```bash
+.venv/bin/python -m src.evaluate.blend
+.venv/bin/python -m src.evaluate.adaptive
+.venv/bin/python -m src.pipeline.predict_ensemble \
+  --adaptive results/lgbm_adaptive/live_weights.json \
+  --output outputs/forecast_adaptive_2026-09-30
+.venv/bin/python -m src.db.export_seed \
+  --forecast-dir outputs/forecast_adaptive_2026-09-30 \
+  --backtest results/lgbm_adaptive/test_predictions.parquet
+```
+
+These commands create new directories. If outputs already exist, reuse them or
+choose new paths with the respective CLI options. `FORECAST_SEED_DIR` can point
+Spring at another export directory. Start the two servers in separate terminals:
+
+```bash
+cd backend
+JAVA_HOME="$(brew --prefix openjdk@17)" ./gradlew bootRun
+```
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+Open <http://127.0.0.1:5173>. The dashboard includes the five items, actual
+price history and historical forecast comparisons. The latest origin is
+2026-09-30, with point forecasts for 1, 5 and 10 trading days. Future trading
+dates, intervals and mid-term outputs remain unavailable. The metrics displayed
+in the forecast log summarize the retrospective period shown above the chart;
+the chart displays up to 90 recent records.
+
+The adaptive weights use only targets observed by each forecast origin.
+Configuration is selected on 2024 validation. The 2025–2026 comparison is
+retrospective and has been inspected during development. It does not score the
+September production refit against later actual prices. To reproduce the separate
+LightGBM direction-priority tuning experiment, run
+`.venv/bin/python -m src.models.tune_direction` from the project root.
+
+The MySQL read profile uses the same `db/schema.sql` and the `DB_*` environment
+variables. A MySQL server, schema installation and batch upsert are needed for
+that profile. Local H2 validation does not require MySQL.
