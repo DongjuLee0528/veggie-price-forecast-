@@ -305,3 +305,27 @@ explicit revised validation protocol or new holdout. Existing source-vintage and
 retrospective-cleaning limitations remain. Earlier exploratory baseline-only
 reports also included this period; this is a frozen model comparison, not a claim
 that the entire historical test period had never been inspected.
+
+## Development experiment v2 (user-run training)
+
+Two more training-period pepper trades have the same suspect Jinju/0.6kg pattern
+but were below the original 85000-unit-price screening threshold: 2020-03-28
+(100 units at 81000) and 2020-04-11 (125 units at 80000). They are not confirmed
+source errors. `python -m src.features.prepare_experiment` creates an isolated
+sensitivity dataset under `data/processed/experiment_v2/`, retaining extra-exclusion
+records and all original datasets/results. Existing experiment data is not
+overwritten. The 2024 validation rows are unchanged; only training features and
+labels affected by the trial trade removal are recomputed. A 2021 high-price day
+is retained because evidence is insufficient to remove it. No generic clipping
+or performance-driven test-label cleaning is applied.
+
+Run `python -m src.models.train_experiments` yourself to fit 25 development models:
+full-feature pooled horizons, price-only pooled horizons and price-only direct
+h=1/5/10 models per item. The pooled fits train h=1..10 but all experiments are
+evaluated and early-stopped on identical 2024 h=1/5/10 samples. Parameters remain
+500 max rounds, 50 patience, 2 CPU threads; checkpoints every 10 (or 5 via option).
+Results go to `results/lgbm_experiment_v2/`; no test.parquet is read, no final
+re-evaluation or automatic winning-model promotion occurs. This compares input
+sets and direct horizons, not the isolated causal effect of extra exclusions.
+The prior final test has already been inspected; a new independent final claim
+requires future untouched data or a predefined new evaluation protocol.
