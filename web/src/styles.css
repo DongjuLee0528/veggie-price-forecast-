@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;650;750&family=DM+Sans:wght@400;500;600;700&display=swap');
+@import 'tailwindcss';
+
+:root {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  color: #17392f;
+  background: #eff4f0;
+  font-synthesis: none;
+  font-variant-numeric: tabular-nums;
+}
+body { margin: 0; min-width: 320px; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 2px solid #087786; outline-offset: 4px; }
+.shell { width: min(1120px, calc(100% - 48px)); margin-inline: auto; }
+.masthead { background: #143b31; color: #fff; }
+.header-inner { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 11px; font-size: 18px; font-weight: 750; white-space: nowrap; }
+.brand-mark { display: flex; align-items: end; gap: 3px; height: 27px; padding: 4px; transform: skewY(-11deg); }
+.brand-mark i { display: block; width: 5px; height: 9px; border-radius: 4px; background: #d9eea4; }
+.brand-mark i:nth-child(2) { height: 14px; }
+.brand-mark i:nth-child(3) { height: 20px; }
+.data-date { display: flex; align-items: center; gap: 11px; font-size: 13px; }
+.data-date span { color: #ccded4; }
+.data-date time { font-weight: 700; color: #e0f3ac; }
+.item-tabs { display: flex; gap: 8px; padding-block: 26px 16px; flex-wrap: wrap; }
+.item-tabs button, .pills button { border: 1px solid #cadbd1; background: #fcfefa; color: #244c3e; padding: 8px 15px; border-radius: 7px; font-size: 14px; font-weight: 700; }
+.item-tabs button[aria-pressed='true'] { background: #dcefae; border-color: #c6dd8d; color: #16362a; }
+.title-row { display: flex; gap: 15px; align-items: baseline; padding: 6px 0 12px; }
+h1, h2, p { margin: 0; }
+h1 { font-size: clamp(34px, 5vw, 56px); font-weight: 800; line-height: 1.08; letter-spacing: -.07em; }
+.item-type { color: #4e6a60; font-size: 14px; }
+.page-tabs { display: flex; gap: 26px; border-bottom: 1px solid #cbdad0; margin-bottom: 16px; }
+.page-tabs button { padding: 12px 2px; border: 0; border-bottom: 3px solid transparent; color: #557167; background: transparent; font-weight: 700; }
+.page-tabs button[aria-current='page'] { border-color: #245a47; color: #17392f; }
+.forecast-panel, .status-card { background: #fff; border: 1px solid #d4e1d9; border-radius: 16px; padding: 24px; box-shadow: 0 4px 20px #17392f06; min-width: 0; }
+.section-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.section-heading h2 { font-size: 21px; font-weight: 800; letter-spacing: -.04em; }
+.section-heading p { color: #536e63; font-size: 13px; margin-top: 5px; }
+.unit { color: #526e64; font-size: 12px; font-weight: 700; }
+.chart { height: 300px; min-width: 0; margin-top: 6px; }
+.chart-note { color: #5a746a; font-size: 12px; margin-top: 7px; }
+.legend { display: flex; justify-content: flex-end; gap: 15px; padding-block: 10px 0; font-size: 12px; color: #466257; }
+.legend span::before { display: inline-block; width: 14px; height: 0; border-top: 2px solid #245a47; content: ''; vertical-align: middle; margin-right: 6px; }
+.legend .estimate::before { border-top-style: dashed; border-color: #237889; }
+.price-summary { margin-top: 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.price-tile { display: flex; flex-direction: column; gap: 6px; border: 1px solid #d4e1d9; border-radius: 11px; padding: 16px 18px; background: #fff; min-width: 0; }
+.price-tile.latest { background: #e3f0e8; }
+.price-tile > span { font-size: 13px; font-weight: 700; }
+.price-tile strong, .metric-row strong { font: 750 clamp(22px, 4vw, 36px)/1 'Bricolage Grotesque', 'DM Sans', sans-serif; letter-spacing: -.035em; }
+.price-tile small { font-size: 11px; color: #557167; }
+.price-tile small.up { color: #a22b26; }
+.price-tile small.down { color: #245fa0; }
+.comparison-label { color: #557167; }
+.filter-row { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-block: 14px; }
+.pills { display: flex; gap: 5px; flex-wrap: wrap; }
+.pills button { padding: 6px 11px; font-size: 12px; }
+.pills button[aria-pressed='true'] { background: #245a47; border-color: #245a47; color: white; }
+.checkbox { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.checkbox input { accent-color: #245a47; }
+.metric-row { display: flex; gap: 12px; margin-top: 8px; }
+.metric-row div { display: grid; gap: 8px; padding: 14px; background: #e8f2ec; border-radius: 8px; }
+.metric-row span { font-size: 12px; }
+.metric-row strong { font-size: 26px; }
+.status-card { display: grid; gap: 12px; justify-items: start; margin-block: 16px; }
+.status-card p, .empty { color: #536e63; font-size: 14px; }
+.retry { border: 0; background: #245a47; color: white; padding: 8px 14px; border-radius: 6px; }
+.empty { padding-block: 32px; }
+footer.shell { padding-block: 20px 26px; color: #506d62; font-size: 12px; }
+
+@media (max-width: 640px) {
+  .shell { width: calc(100% - 24px); }
+  .header-inner { min-height: 62px; }
+  .brand { font-size: 15px; gap: 5px; }
+  .data-date { flex-direction: column; align-items: flex-end; gap: 1px; font-size: 11px; }
+  .item-tabs { gap: 4px; padding-top: 17px; }
+  .item-tabs button { flex: 1 0 auto; padding: 7px 8px; font-size: 13px; }
+  .forecast-panel, .status-card { padding: 16px 12px; border-radius: 12px; }
+  .chart { height: 242px; }
+  .price-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .price-tile { padding: 13px; }
+}
