@@ -1,0 +1,12 @@
+server:
+  address: 127.0.0.1
+  port: 8080
+spring:
+  profiles:
+    default: h2
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
