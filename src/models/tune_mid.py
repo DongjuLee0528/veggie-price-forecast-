@@ -33,7 +33,7 @@ def archived_comparison(directory, evaluation):
     return rows
 
 
-def ets_predictions(rows, means, first_observation):
+def ets_predictions(rows, means, first_observation, *, trend="add", damped=True, lookback=None):
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
     first = int(means.index.min())
@@ -48,9 +48,11 @@ def ets_predictions(rows, means, first_observation):
     result = pd.Series(index=rows.index, dtype=float)
     for period, indices in completed.groupby(completed).groups.items():
         history = means.loc[:period]
+        if lookback is not None:
+            history = history.tail(lookback)
         if len(history) < 72 or not history.gt(0).all():
             raise ValueError('Holt–Winters requires two years of positive prices')
-        model = ExponentialSmoothing(np.log(history.to_numpy()), trend='add', damped_trend=True,
+        model = ExponentialSmoothing(np.log(history.to_numpy()), trend=trend, damped_trend=damped,
                                      seasonal='add', seasonal_periods=36, initialization_method='heuristic')
         fitted = model.fit()
         if not fitted.mle_retvals.success:
