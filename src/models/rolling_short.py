@@ -75,8 +75,15 @@ def run_months(history, origins, columns, dry_run):
         }
         prices = {'last_value': rows.last_value.to_numpy()}
         for name, model in models.items():
-            model.fit(x, train.target_return)
-            prices[name] = rows.base_price.to_numpy() * (1 + model.predict(future))
+            if name == 'monthly_mlp':
+                model.fit(x, np.log(train.target_price / train.base_price))
+                ratio = np.exp(model.predict(future))
+            else:
+                model.fit(x, train.target_return)
+                ratio = 1 + model.predict(future)
+            prices[name] = rows.base_price.to_numpy() * ratio
+            if not np.isfinite(prices[name]).all() or not (prices[name] > 0).all():
+                raise ValueError(f'Invalid prices: {rows.item.iloc[0]}, {month}, {name}')
         prices['monthly_blend'] = .5 * prices['monthly_lgbm'] + .25 * prices['monthly_mlp'] + .25 * prices['last_value']
         for name, values in prices.items():
             predictions.append(prediction_records(rows, values, name).assign(split=rows.split.to_numpy()))
