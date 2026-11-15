@@ -14,9 +14,10 @@ export type Forecast = {
   type: string
   base_date: string
   unit: string
+  model_version: string
   recent_actual: Point[]
   short_term: ShortTerm[]
-  mid_term: { k: number; period: string; p50: number }[]
+  mid_term: { k: number; period_start: string; period_end: string; p50: number; actual: number | null }[]
 }
 export type History = { item: string; unit: string; actual: Point[]; last_year: Point[] }
 export type LogPoint = {

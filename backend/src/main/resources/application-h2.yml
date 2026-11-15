@@ -11,4 +11,4 @@ spring:
       enabled: true
       path: /h2-console
 forecast:
-  seed-dir: ${FORECAST_SEED_DIR:../db/seed/current}
+  seed-dir: ${FORECAST_SEED_DIR:../db/seed/dashboard}

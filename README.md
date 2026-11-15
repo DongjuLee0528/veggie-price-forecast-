@@ -350,13 +350,23 @@ generate the retrospective comparison and the dashboard inputs from the project 
   --backtest results/lgbm_adaptive/test_predictions.parquet
 ```
 
-These commands create new directories. If outputs already exist, reuse them or
-choose new paths with the respective CLI options. `FORECAST_SEED_DIR` can point
-Spring at another export directory. Start the two servers in separate terminals:
+These commands create the historical seed in `db/seed/current`. After exporting
+the latest short and mid-term forecasts, build the local dashboard seed:
+
+```bash
+.venv/bin/python -m src.db.export_dashboard --output db/seed/dashboard
+```
+
+The dashboard exporter uses the latest matching short- and mid-term forecast
+exports and includes newer validated API daily price files in price history.
+For a refresh, export to a new directory and point the restarted backend at it
+with `FORECAST_SEED_DIR`. The in-memory database loads CSVs at startup.
+
+Start the two servers in separate terminals:
 
 ```bash
 cd backend
-JAVA_HOME="$(brew --prefix openjdk@17)" ./gradlew bootRun
+JAVA_HOME="$(/usr/libexec/java_home -v 17)" ./gradlew bootRun
 ```
 
 ```bash
@@ -365,12 +375,9 @@ npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. The dashboard includes the five items, actual
-price history and historical forecast comparisons. The latest origin is
-2026-09-30, with point forecasts for 1, 5 and 10 trading days. Future trading
-dates, intervals and mid-term outputs remain unavailable. The metrics displayed
-in the forecast log summarize the retrospective period shown above the chart;
-the chart displays up to 90 recent records.
+Open <http://127.0.0.1:5173>. The dashboard includes five items, with Sumi potatoes
+in place of peeled garlic, and displays short-term forecasts, mid-term forecasts,
+price history, and historical forecast comparisons.
 
 The adaptive weights use only targets observed by each forecast origin.
 Configuration is selected on 2024 validation. The 2025–2026 comparison is

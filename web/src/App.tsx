@@ -44,10 +44,10 @@ function PriceChart({ rows, forecast = false, comparison = false }: {
           contentStyle={{ borderColor: '#dfe9e3', borderRadius: 10 }} />
         {forecast && <ReferenceLine x={0} stroke="#9ab0a7" strokeDasharray="4 4" />}
         <Line name="실제 가격" dataKey="actual" type="linear" stroke="#245a47" strokeWidth={2.5}
-          dot={false} isAnimationActive={false} connectNulls />
+          dot={comparison && rows.length < 3} isAnimationActive={false} connectNulls />
         {(forecast || comparison) && <Line name="예측 가격" dataKey="estimate" type="linear"
           stroke="#237889" strokeWidth={2.5} strokeDasharray="6 4" isAnimationActive={false}
-          dot={forecast ? { r: 3, fill: '#237889' } : false} connectNulls />}
+          dot={forecast || (comparison && rows.length < 3) ? { r: 3, fill: '#237889' } : false} connectNulls />}
         {!forecast && !comparison && <Line name="전년 동기" dataKey="previous" type="linear"
           stroke="#8a734a" strokeWidth={1.8} strokeDasharray="5 4" dot={false}
           isAnimationActive={false} connectNulls />}
@@ -77,7 +77,7 @@ function ForecastPanel({ forecast }: { forecast: Forecast }) {
     <section className="price-summary" aria-label="예측 가격 요약">
       <div className="price-tile latest">
         <span>마지막 실측가</span><strong>{latest ? formatPrice(latest.price) : '—'}</strong>
-        <small>{latest?.date}</small>
+        <small>{latest?.date}{forecast.model_version.startsWith('api-provisional-') && ' · 잠정 정산가격'}</small>
       </div>
       {forecast.short_term.map(point => {
         const change = (point.p50 / point.base_price - 1) * 100
@@ -89,6 +89,22 @@ function ForecastPanel({ forecast }: { forecast: Forecast }) {
         </div>
       })}
     </section>
+    {forecast.mid_term.length > 0 && <section className="forecast-panel" aria-labelledby="mid-forecast-title">
+      <div className="section-heading"><h2 id="mid-forecast-title">중기 예측</h2><span className="unit">{forecast.unit}</span></div>
+      <div className="legend"><span>실제 평균가</span><span className="estimate">예측 평균가</span></div>
+      <PriceChart rows={forecast.mid_term.map(point => ({
+        x: point.period_start, label: `${shortDate(point.period_start)}~${shortDate(point.period_end)}`,
+        actual: point.actual, estimate: point.p50,
+      }))} comparison />
+      <div className="price-summary">
+        {forecast.mid_term.map(point => <div className="price-tile" key={point.k}>
+          <span>{shortDate(point.period_start)}~{shortDate(point.period_end)}</span>
+          <strong>{formatPrice(point.p50)}</strong>
+          <small>{point.actual === null ? '실측 대기'
+            : `실측 ${formatPrice(point.actual)}원/kg · 오차 ${percent(Math.abs(point.p50 / point.actual - 1))}`}</small>
+        </div>)}
+      </div>
+    </section>}
   </>
 }
 
@@ -106,7 +122,7 @@ function HistoryPanel({ item }: { item: string }) {
   const [previous, setPrevious] = useState(true)
   const request = useApi<History>(`/api/history?item=${encodeURIComponent(item)}&range=${range}`)
   return <section className="forecast-panel">
-    <div className="section-heading"><h2>가격 기록</h2><span className="unit">원/kg</span></div>
+    <div className="section-heading"><div><h2>가격 기록</h2>{request.data?.actual.at(-1) && <p>최신 가격 {request.data.actual.at(-1)?.date}</p>}</div><span className="unit">원/kg</span></div>
     <div className="filter-row">
       <div className="pills" aria-label="조회 기간">{ranges.map(([value, label]) =>
         <button key={value} aria-pressed={range === value} onClick={() => setRange(value)}>{label}</button>)}</div>
@@ -149,7 +165,7 @@ export default function App() {
     <header className="masthead">
       <div className="shell header-inner">
         <div className="brand"><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>농산물 가격예보</div>
-        {forecast.data && <div className="data-date"><span>데이터 기준일</span><time dateTime={forecast.data.base_date}>{forecast.data.base_date}</time></div>}
+        {forecast.data && <div className="data-date"><span>예측 기준일</span><time dateTime={forecast.data.base_date}>{forecast.data.base_date}</time></div>}
       </div>
     </header>
     <main className="shell">

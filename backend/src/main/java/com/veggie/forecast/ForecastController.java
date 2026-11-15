@@ -59,8 +59,14 @@ class ForecastController {
             FROM forecast_short WHERE run_id = :run AND item_id = :item ORDER BY horizon
             """).param("run", run.id()).param("item", selected.id()).query(ShortTerm.class).list();
         List<MidTerm> midTerm = db.sql("""
-            SELECT k, period_label AS period, period_start, period_end, p10, p50, p90
-            FROM forecast_mid WHERE run_id = :run AND item_id = :item ORDER BY k
+            SELECT m.k, m.period_label AS period, m.period_start, m.period_end, m.p10, m.p50, m.p90,
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM price_daily p WHERE p.item_id = m.item_id AND p.trade_date >= m.period_end
+                ) THEN (
+                    SELECT AVG(p.price_per_kg) FROM price_daily p WHERE p.item_id = m.item_id
+                    AND p.trade_date BETWEEN m.period_start AND m.period_end
+                ) END AS actual
+            FROM forecast_mid m WHERE m.run_id = :run AND m.item_id = :item ORDER BY m.k
             """).param("run", run.id()).param("item", selected.id()).query(MidTerm.class).list();
         Meta meta = db.sql("SELECT signal, alert, reasons FROM forecast_meta WHERE run_id = :run AND item_id = :item")
             .param("run", run.id()).param("item", selected.id()).query(Meta.class).optional()
@@ -156,7 +162,7 @@ class ForecastController {
     record ShortTerm(int horizon, LocalDate date, BigDecimal p10, BigDecimal p50, BigDecimal p90,
                      BigDecimal basePrice, String model) {}
     record MidTerm(int k, String period, LocalDate periodStart, LocalDate periodEnd,
-                   BigDecimal p10, BigDecimal p50, BigDecimal p90) {}
+                   BigDecimal p10, BigDecimal p50, BigDecimal p90, BigDecimal actual) {}
     record Meta(String signal, boolean alert, String reasons) {}
     record ForecastView(String item, String type, LocalDate baseDate, String unit, String modelVersion,
                         List<Point> recentActual, List<ShortTerm> shortTerm, List<MidTerm> midTerm,
