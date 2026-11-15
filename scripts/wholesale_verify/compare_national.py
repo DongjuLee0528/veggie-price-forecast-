@@ -15,7 +15,10 @@ parser.add_argument("--gumi-pepper", action="store_true")
 parser.add_argument("--gumi-pepper-direct", action="store_true")
 parser.add_argument("--collect", nargs=2, metavar=("START", "END"))
 parser.add_argument("--cached-only", action="store_true", help="Rebuild collection reports from saved market responses.")
+parser.add_argument("--refresh-empty", action="store_true", help="Retry markets with empty cached responses.")
 args = parser.parse_args()
+if args.refresh_empty and (not args.collect or args.cached_only):
+    parser.error("--refresh-empty requires live collection")
 if args.cached_only and not args.collect:
     parser.error("--cached-only requires --collect")
 if args.collect:
@@ -127,7 +130,7 @@ if args.collect:
             received = json.loads(cache.read_text()) if cache.exists() else {}
             states = {}
             for market in markets:
-                if market not in received:
+                if market not in received or (args.refresh_empty and not received[market]):
                     if args.cached_only:
                         states[market] = "not_cached"
                         continue
@@ -144,7 +147,8 @@ if args.collect:
                     save(json.dumps(received, ensure_ascii=False), cache)
                 states[market] = "received"
 
-            records = [row for rows in received.values() for row in rows]
+            records = [row for market in markets if states[market] == "received"
+                       for row in received[market]]
             api = pd.DataFrame(records, columns=["market", "PDLT_NM", "SPCS_NM",
                                                 "api_variety_code", "unit", "api_won", "api_kg"])
             missing_names = api.SPCS_NM.eq("")
@@ -192,7 +196,7 @@ if args.collect:
             )
             daily["provisional_price_per_kg"] = daily.amount / daily.volume_kg.where(price_available)
             save(daily.to_csv(index=False), output / f"daily_{day:%Y%m%d}.csv")
-            print(f"{day:%Y-%m-%d} 조회 확인 {len(received)}/{len(markets)}시장", flush=True)
+            print(f"{day:%Y-%m-%d} 조회 확인 {sum(state == 'received' for state in states.values())}/{len(markets)}시장", flush=True)
     raise SystemExit(0)
 
 
