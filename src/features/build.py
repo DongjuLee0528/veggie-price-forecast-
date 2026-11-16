@@ -13,6 +13,24 @@ def ratio(numerator, denominator):
     return numerator / denominator.where(denominator.ne(0))
 
 
+def price_features(history):
+    output = []
+    for _, group in history.groupby("item"):
+        frame = group[["date", "item"]].copy()
+        price = group.price_per_kg
+        frame["base_price"] = price.rolling(7).mean()
+        for lag in (1, 5, 10, 20):
+            frame[f"lag_{lag}"] = price.shift(lag) / frame.base_price
+        frame["ma7_ma28_ratio"] = frame.base_price / price.rolling(28).mean()
+        for lag in (7, 28):
+            frame[f"ret_{lag}"] = price / price.shift(lag) - 1
+        frame["vol_28"] = price.pct_change(fill_method=None).rolling(28).std()
+        prior = (group.date - pd.DateOffset(years=1)).map(group.set_index("date").price_per_kg)
+        frame["yoy"] = price / prior - 1
+        output.append(frame)
+    return pd.concat(output, ignore_index=True)
+
+
 def weather_features(regional):
     records = []
     for item, group in regional.groupby('item'):
