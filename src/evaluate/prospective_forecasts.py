@@ -105,6 +105,7 @@ def score(ledger, prices, through):
             last = row.get("last_value_krw_per_kg")
             rows.append(dict(
                 term=row["term"], item=row["item"], horizon=row["horizon"], base_date=run["base_date"],
+                **({"variant": row["variant"]} if "variant" in row else {}),
                 model_version=run["model_version"], recorded_at=run["recorded_at"],
                 status="scored" if actual is not None else "official_actual_pending",
                 actual_end=None if sample.empty else str(sample.date.iloc[-1].date()),
