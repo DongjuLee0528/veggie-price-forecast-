@@ -4,20 +4,75 @@ import json
 import math
 from pathlib import Path
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-from src.evaluate.prospective_forecasts import official_prices, score
+from src.evaluate.prospective_forecasts import ROOT, official_prices, score
+from src.features.build import price_features
+from src.models.train_lgbm import model_inputs
+
+
+def onion_forecast(origin):
+    settlement = ROOT / "outputs/wholesale_verify/mafra_settlement"
+    first_api_date = pd.Timestamp("2026-10-01")
+    frames = []
+    for day in pd.date_range(first_api_date, origin):
+        path = settlement / f"daily_{day:%Y%m%d}.csv"
+        if not path.is_file():
+            raise ValueError(f"Missing settlement report for {day.date()}")
+        row = pd.read_csv(path, parse_dates=["date"]).query("item == '양파'")
+        if len(row) != 1 or not row.date.eq(day).all():
+            raise ValueError(f"Invalid onion settlement report for {day.date()}")
+        observed = row.observed_markets.gt(0)
+        if day == origin and (not observed.all() or row.review_markets.ne(0).any()
+                              or row.unconfirmed_markets.ne(0).any()):
+            raise ValueError(f"No usable onion settlement for {day.date()}")
+        frames.append(row[observed | row.review_markets.gt(0) | row.unconfirmed_markets.gt(0)])
+    api = pd.concat(frames, ignore_index=True).rename(columns={"provisional_price_per_kg": "price_per_kg"})
+    columns = ["date", "item", "price_per_kg"]
+    official = pd.read_parquet(ROOT / "data/interim/price/settlement_daily_clean.parquet", columns=columns)
+    history = pd.concat([official[official.date.lt(first_api_date) & official.item.eq("양파")],
+                         api[columns]], ignore_index=True).sort_values("date")
+    if history.date.duplicated().any():
+        raise ValueError("Duplicate onion price dates")
+    features = price_features(history).tail(1).assign(horizon=5).set_index("item")
+    directory = ROOT / "results/lgbm_production"
+    manifest = json.loads((directory / "run.json").read_text())
+    route, = [row for row in manifest["selected"] if (row["item"], row["horizon"]) == ("양파", 5)]
+    if manifest["status"] != "complete" or pd.Timestamp(manifest["cutoff"]) >= origin or route["model"] != "price_pooled":
+        raise ValueError("Expected the fixed onion production model")
+    model_bytes = (directory / route["file"]).read_bytes()
+    digest = hashlib.sha256(model_bytes).hexdigest()
+    artifact, = [entry for entry in manifest["models"] if entry["file"] == route["file"]]
+    if digest != artifact["sha256"]:
+        raise ValueError("Onion production model checksum mismatch")
+    inputs = model_inputs(features, route["inputs"])
+    if not np.isfinite(inputs.to_numpy(dtype=float)).all():
+        raise ValueError("Missing or invalid onion price features")
+    booster = lgb.Booster(model_str=model_bytes.decode("utf-8"))
+    change, = booster.predict(inputs, num_iteration=route["best_iteration"], num_threads=2)
+    base = float(features.base_price.iloc[0])
+    row = dict(term="short", item="양파", horizon=5, base_date=str(origin.date()), target_date=None,
+               model=route["model"], source="mafra_api_provisional", base_price=base,
+               last_value_krw_per_kg=float(history.price_per_kg.iloc[-1]), prediction_krw_per_kg=base * (1 + float(change)))
+    version = hashlib.sha256(json.dumps([route, digest], sort_keys=True).encode()).hexdigest()
+    return dict(base_date=str(origin.date()), model_version=version, forecasts=[row])
 
 
 def record(source, ledger, now):
     now = now.tz_convert("Asia/Seoul")
     origin = pd.Timestamp(now.date())
-    payload = source.read_bytes()
-    run = json.loads(payload)
-    recorded = pd.Timestamp(run["recorded_at"]).tz_convert("Asia/Seoul")
-    if pd.Timestamp(run["base_date"]) != origin or recorded.date() != now.date() or recorded > now:
-        raise ValueError("Expected a model forecast recorded earlier today")
+    if source is None:
+        run = onion_forecast(origin)
+        run["recorded_at"] = now.isoformat()
+        payload = json.dumps(run, sort_keys=True).encode()
+    else:
+        payload = source.read_bytes()
+        run = json.loads(payload)
+        recorded = pd.Timestamp(run["recorded_at"]).tz_convert("Asia/Seoul")
+        if pd.Timestamp(run["base_date"]) != origin or recorded.date() != now.date() or recorded > now:
+            raise ValueError("Expected a model forecast recorded earlier today")
     matches = [row for row in run["forecasts"]
                if (row["term"], row["item"], row["horizon"]) == ("short", "양파", 5)]
     if len(matches) != 1:
@@ -52,7 +107,7 @@ def main():
     parser = argparse.ArgumentParser(description="Record and score five-trading-day onion forecast candidates.")
     commands = parser.add_subparsers(dest="command", required=True)
     save = commands.add_parser("record")
-    save.add_argument("--source", type=Path, required=True, help="Today's fixed-model ledger JSON.")
+    save.add_argument("--source", type=Path, help="Use an existing fixed-model ledger JSON for today.")
     save.add_argument("--ledger", type=Path, required=True, help="Separate candidate ledger directory.")
     evaluate = commands.add_parser("score")
     evaluate.add_argument("--ledger", type=Path, required=True)
@@ -62,7 +117,10 @@ def main():
     args = parser.parse_args()
     now = pd.Timestamp.now(tz="Asia/Seoul")
     if args.command == "record":
-        print(record(args.source, args.ledger, now))
+        try:
+            print(record(args.source, args.ledger, now))
+        except (ValueError, FileExistsError) as exc:
+            parser.exit(1, f"{exc}\n")
         return
     if args.official_through >= pd.Timestamp(now.date()):
         parser.error("Official coverage must end before today")
