@@ -56,15 +56,49 @@ function PriceChart({ rows, forecast = false, comparison = false }: {
   </div>
 }
 
+export function DirectionSummary({ forecast }: { forecast: Forecast }) {
+  const reference = forecast.recent_actual.find(point => point.date === forecast.base_date && point.price > 0)
+  return <section className="forecast-panel direction-summary" aria-labelledby="direction-title">
+    <div className="section-heading">
+      <div>
+        <h2 id="direction-title">오를까, 내릴까?</h2>
+        <p>{reference ? '예측 기준일 관측가 대비' : '예측 기준일 관측가가 없어 방향을 표시할 수 없습니다.'}</p>
+      </div>
+      {reference && <div className="direction-reference">
+        <span>{shortDate(reference.date)} 관측가</span>
+        <strong>{formatPrice(reference.price)} <small>{forecast.unit}</small></strong>
+        {forecast.model_version.startsWith('api-provisional-') && <span>잠정 정산가격</span>}
+      </div>}
+    </div>
+    <div className="price-summary">
+      {forecast.short_term.map(point => {
+        const change = reference && point.model !== 'last_value'
+          ? (point.p50 / reference.price - 1) * 100
+          : null
+        const trend = change === null || change === 0 ? '' : change > 0 ? 'up' : 'down'
+        const direction = change === null ? '— 방향 판단 보류'
+          : trend === 'up' ? '↑ 상승 예상' : trend === 'down' ? '↓ 하락 예상' : '— 보합 예상'
+        const magnitude = change === null || change === 0 ? null
+          : Math.abs(change) < 0.05 ? '0.1% 미만' : `${change > 0 ? '+' : '−'}${Math.abs(change).toFixed(1)}%`
+        return <div className="price-tile" key={point.horizon}>
+          <span>{point.horizon}거래일 후</span>
+          <strong className={trend}>{direction}</strong>
+          <small>예측가 {formatPrice(point.p50)} {forecast.unit}{magnitude && ` · ${magnitude}`}</small>
+        </div>
+      })}
+    </div>
+  </section>
+}
+
 function ForecastPanel({ forecast }: { forecast: Forecast }) {
   const recent = forecast.recent_actual
-  const latest = recent.at(-1)
   const rows = [
     ...recent.map((point, index) => ({ x: index - recent.length + 1, label: shortDate(point.date),
       actual: point.price, estimate: index === recent.length - 1 ? point.price : undefined })),
     ...forecast.short_term.map(point => ({ x: point.horizon, label: `+${point.horizon}거래일`, estimate: point.p50 })),
   ]
   return <>
+    <DirectionSummary forecast={forecast} />
     <section className="forecast-panel" aria-labelledby="forecast-title">
       <div className="section-heading">
         <div><h2 id="forecast-title">가격 흐름</h2><p>최근 {recent.length}거래일 실측과 단기 예측</p></div>
@@ -73,21 +107,6 @@ function ForecastPanel({ forecast }: { forecast: Forecast }) {
       <div className="legend"><span>실제 가격</span><span className="estimate">예측 가격</span></div>
       <PriceChart rows={rows} forecast />
       <p className="chart-note">예측 지점은 품목별 거래일 기준입니다. 점선은 표시된 예측 지점을 연결합니다.</p>
-    </section>
-    <section className="price-summary" aria-label="예측 가격 요약">
-      <div className="price-tile latest">
-        <span>마지막 실측가</span><strong>{latest ? formatPrice(latest.price) : '—'}</strong>
-        <small>{latest?.date}{forecast.model_version.startsWith('api-provisional-') && ' · 잠정 정산가격'}</small>
-      </div>
-      {forecast.short_term.map(point => {
-        const change = (point.p50 / point.base_price - 1) * 100
-        return <div className="price-tile" key={point.horizon}>
-          <span>{point.horizon}거래일 후</span><strong>{formatPrice(point.p50)}</strong>
-          <small className={change > 0 ? 'up' : change < 0 ? 'down' : ''}>
-            {change > 0 ? '+' : ''}{change.toFixed(1)}%<span className="comparison-label"> · 7거래일 평균 대비</span>
-          </small>
-        </div>
-      })}
     </section>
     {forecast.mid_term.length > 0 && <section className="forecast-panel" aria-labelledby="mid-forecast-title">
       <div className="section-heading"><h2 id="mid-forecast-title">중기 예측</h2><span className="unit">{forecast.unit}</span></div>
