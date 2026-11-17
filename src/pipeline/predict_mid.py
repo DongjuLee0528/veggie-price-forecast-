@@ -15,7 +15,7 @@ from src.models.tune_mid import ets_predictions
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def predict_mid(inputs, model_results):
+def predict_mid(inputs, model_results, *, selected_pepper=False):
     prices = pd.read_parquet(inputs / "prices.parquet")
     features = pd.read_parquet(inputs / "price_features.parquet")
     if set(features.item) != ITEMS or features.item.duplicated().any():
@@ -61,6 +61,9 @@ def predict_mid(inputs, model_results):
             fixed = (1 - sarimax_weight) * origin_rows.base_price * (1 + returns) + sarimax_weight * sarimax
             predictions = (1 - ets_weight) * fixed + ets_weight * ets
             methods = ["blend_with_ets"] * 2
+            if item == "건고추" and selected_pepper:
+                predictions = predictions.where(origin_rows.horizon.ne(2), sarimax)
+                methods[0] = "sarimax"
         for row, prediction, method in zip(origin_rows.itertuples(), predictions, methods):
             start, end = dekad_bounds(row.target_dekad)
             if not np.isfinite(prediction) or prediction <= 0:

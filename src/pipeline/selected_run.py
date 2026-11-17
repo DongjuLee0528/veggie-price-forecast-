@@ -1,0 +1,152 @@
+import argparse
+import hashlib
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import lightgbm as lgb
+import numpy as np
+import pandas as pd
+
+from scripts.wholesale_verify.prepare_inputs import WORK, prepare_inputs
+from src.evaluate.compare_candidates import ROUTES, origin_shares
+from src.evaluate.prospective_forecasts import EXPECTED, ROOT, record
+from src.models.train_lgbm import model_inputs
+from src.pipeline.predict_mid import predict_mid
+
+
+def run(origin, inputs, output):
+    if output.exists():
+        raise FileExistsError(output)
+    settlement = WORK / "mafra_settlement"
+    today = pd.read_csv(settlement / f"daily_{origin:%Y%m%d}.csv")
+    expected_items = {item for _, item, _ in EXPECTED}
+    if len(today) != len(expected_items) or set(today.item) != expected_items or not today.date.eq(str(origin.date())).all():
+        raise ValueError("Invalid origin settlement report")
+    valid = today.observed_markets.gt(0) & today.review_markets.eq(0) & today.unconfirmed_markets.eq(0)
+    valid &= today.provisional_price_per_kg.gt(0) & today.volume_kg.gt(0)
+    missing = expected_items - set(today.loc[valid, "item"])
+    if missing:
+        raise ValueError(f"No usable origin settlement for {origin.date()}: {', '.join(sorted(missing))}")
+    prices, features = prepare_inputs(origin, inputs)
+    references = prices[prices.date.eq(origin)].set_index("item").price_per_kg
+    features = features.set_index("item")
+    models = ROOT / "results"
+    snapshot = ROOT / "outputs"
+    production = models / "lgbm_production"
+    production_file = production / "run.json"
+    manifest = json.loads(production_file.read_text())
+    if manifest["status"] != "complete" or pd.Timestamp(manifest["cutoff"]) >= origin:
+        raise ValueError("Invalid short model manifest or cutoff")
+    routes = {(r["item"], r["horizon"]): r for r in manifest["selected"]}
+    hashes = {r["file"]: r["sha256"] for r in manifest["models"]}
+    candidates = snapshot / "final_candidate_forecasts_20261113"
+    comparison_file = candidates / "comparison.json"
+    selection = json.loads(comparison_file.read_text())
+    if pd.Timestamp(selection["lgbm_training_through"]) >= origin:
+        raise ValueError("Selected candidate training cutoff is too recent")
+    replaced = {(item, horizon): (name, extras) for item, horizon, name, extras in ROUTES}
+    potato = snapshot / "wholesale_verify/forecast_inputs_20261113/potato_tuned"
+    potato_files = {
+        1: potato / "lgbm_4y_7leaves_25child_last_0.5.txt",
+        5: models / "potato_sumi/short_lgbm.txt",
+        10: potato / "lgbm_2y_7leaves_50child.txt",
+    }
+    artifacts = [production_file, comparison_file, Path(__file__),
+                 ROOT / "scripts/filter_settlement.py", ROOT / "scripts/wholesale_verify/prepare_inputs.py",
+                 ROOT / "src/features/build.py", ROOT / "src/pipeline/predict_mid.py",
+                 ROOT / "src/models/train_mid.py", ROOT / "src/models/tune_mid.py", ROOT / "src/models/train_lgbm.py",
+                 ROOT / "src/evaluate/compare_candidates.py", ROOT / "src/evaluate/targeted_batch.py",
+                 models / "mid_tuning/selection.json", models / "potato_sumi_tuning/validation_selection.csv",
+                 *(models / "lgbm_mid_comparison" / f"{item}_price_lgbm.txt"
+                   for item in sorted(expected_items - {"감자 수미"}))]
+    shorts = []
+    for _, item, horizon in sorted(route for route in EXPECTED if route[0] == "short"):
+        row = features.loc[[item]].assign(horizon=horizon)
+        base = float(row.base_price.iloc[0])
+        last = float(references.loc[item])
+        history = prices[prices.item.eq(item)]
+        weight, rounds, sha = 0., None, None
+        if (item, horizon) in replaced:
+            name, extras = replaced[item, horizon]
+            path = candidates / f"{name}.txt"
+            sha = selection["model_sha256"][name]
+            if "low_volume" in extras:
+                volume = history.volume_kg.tail(29)
+                if len(volume) != 29 or not volume.gt(0).all():
+                    raise ValueError(f"Missing trading volume for {item}")
+                row["low_volume"] = float(volume.iloc[-1] < .5 * volume.iloc[:-1].median())
+            if "median_to_mean_7" in extras:
+                row["median_to_mean_7"] = history.price_per_kg.tail(7).median() / base
+            if name == "variety_mix":
+                row = row.assign(**origin_shares(settlement / f"markets_{origin:%Y%m%d}.json", item))
+            if name == "price_lgbm_blend":
+                weight = selection["radish_h5_last_value_weight"]
+        elif item == "감자 수미":
+            path = potato_files[horizon]
+            name = "potato_sumi/short_lgbm.txt" if horizon == 5 else path.stem
+            weight = .5 if horizon == 1 else 0.
+        else:
+            route = routes[item, horizon]
+            name = route["model"]
+            path = production / route["file"] if name != "last_value" else None
+            if path is not None:
+                sha, rounds = hashes[path.name], route["best_iteration"]
+        if path is None:
+            prediction = last
+        else:
+            payload = path.read_bytes()
+            if sha is not None and hashlib.sha256(payload).hexdigest() != sha:
+                raise ValueError(f"Model checksum mismatch: {path.name}")
+            booster = lgb.Booster(model_str=payload.decode())
+            model_row = model_inputs(row, booster.feature_name())
+            if not np.isfinite(model_row.to_numpy(dtype=float)).all():
+                raise ValueError(f"Missing operational features: {item} {horizon}")
+            change, = booster.predict(model_row, num_iteration=rounds, num_threads=2)
+            prediction = (1 - weight) * base * (1 + float(change)) + weight * last
+            artifacts.append(path)
+        if not np.isfinite(prediction) or prediction <= 0:
+            raise ValueError(f"Invalid forecast price: {item} {horizon}")
+        shorts.append(dict(item=item, horizon=horizon, horizon_unit="observed_trading_days",
+                           base_date=str(origin.date()), target_date=None, prediction_krw_per_kg=prediction,
+                           model=name, source="mafra_api_provisional"))
+    short = dict(base_date=str(origin.date()), unit="KRW/kg", source="mafra_api_provisional",
+                 forecasts=shorts)
+    mid = predict_mid(inputs, models, selected_pepper=True)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=output.parent) as temp:
+        staging = Path(temp) / "selected"
+        for term, report in (("short", short), ("mid", mid)):
+            folder = staging / term
+            folder.mkdir(parents=True)
+            (folder / "forecast.json").write_text(json.dumps(report, ensure_ascii=False, allow_nan=False) + "\n")
+            pd.DataFrame(report["forecasts"]).to_csv(folder / "predictions.csv", index=False)
+        staging.rename(output)
+    return artifacts
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run and record the fixed short- and mid-term models for today.")
+    parser.parse_args()
+    now = pd.Timestamp.now(tz="Asia/Seoul")
+    origin = pd.Timestamp(now.date())
+    inputs = WORK / f"forecast_inputs_{origin:%Y%m%d}"
+    output = ROOT / "outputs" / f"selected_forecasts_{origin:%Y%m%d}"
+    ledger = ROOT / "outputs/production_prospective"
+    try:
+        if output.exists():
+            raise FileExistsError(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(dir=output.parent) as temp:
+            staging = Path(temp) / "forecast"
+            artifacts = run(origin, inputs, staging)
+            path = record(staging, inputs / "price_features.parquet", inputs / "prices.parquet",
+                          artifacts, ledger, pd.Timestamp.now(tz="Asia/Seoul"))
+            staging.rename(output)
+    except (ValueError, FileNotFoundError, FileExistsError) as exc:
+        parser.exit(1, f"{exc}\n")
+    print(f"Saved 25 forecasts and prospective record: {path}")
+
+
+if __name__ == "__main__":
+    main()
