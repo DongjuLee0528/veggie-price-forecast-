@@ -44,13 +44,19 @@ h1 { font-size: clamp(34px, 5vw, 56px); font-weight: 800; line-height: 1.08; let
 .legend .estimate::before { border-top-style: dashed; border-color: #237889; }
 .price-summary { margin-top: 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .price-tile { display: flex; flex-direction: column; gap: 6px; border: 1px solid #d4e1d9; border-radius: 11px; padding: 16px 18px; background: #fff; min-width: 0; }
-.price-tile.latest { background: #e3f0e8; }
+.direction-summary { margin-bottom: 14px; }
+.direction-summary .price-summary { grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); }
+.direction-summary .price-tile { background: #edf5ef; }
+.direction-summary .price-tile strong { font: 750 18px/1.3 'DM Sans', sans-serif; letter-spacing: -.02em; }
+.direction-summary .price-tile strong.up { color: #a22b26; }
+.direction-summary .price-tile strong.down { color: #245fa0; }
+.direction-reference { display: grid; gap: 3px; text-align: right; flex-shrink: 0; }
+.direction-reference span, .direction-reference small { color: #557167; font-size: 12px; }
+.direction-reference strong { font-size: 20px; }
+.direction-summary .section-heading { flex-wrap: wrap; }
 .price-tile > span { font-size: 13px; font-weight: 700; }
 .price-tile strong, .metric-row strong { font: 750 clamp(22px, 4vw, 36px)/1 'Bricolage Grotesque', 'DM Sans', sans-serif; letter-spacing: -.035em; }
 .price-tile small { font-size: 11px; color: #557167; }
-.price-tile small.up { color: #a22b26; }
-.price-tile small.down { color: #245fa0; }
-.comparison-label { color: #557167; }
 .filter-row { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-block: 14px; }
 .pills { display: flex; gap: 5px; flex-wrap: wrap; }
 .pills button { padding: 6px 11px; font-size: 12px; }
