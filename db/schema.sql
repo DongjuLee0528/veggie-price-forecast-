@@ -60,7 +60,7 @@ CREATE TABLE forecast_mid (
 CREATE TABLE forecast_meta (
     run_id BIGINT NOT NULL,
     item_id BIGINT NOT NULL,
-    signal VARCHAR(40),
+    `signal` VARCHAR(40),
     alert BOOLEAN NOT NULL DEFAULT FALSE,
     reasons TEXT,
     FOREIGN KEY (run_id) REFERENCES forecast_run(id),
