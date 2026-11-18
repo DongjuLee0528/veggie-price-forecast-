@@ -7,6 +7,7 @@ import pandas as pd
 
 from src.collect.asos import ROOT
 from src.evaluate.backtest import score_predictions
+from src.evaluate.prospective_direction import forecast_signals
 from src.models.compare_all_items import ITEMS
 
 HORIZONS = (1, 5, 10)
@@ -65,6 +66,7 @@ def main():
                 or not np.isfinite(rows.prediction_krw_per_kg).all()
                 or not rows.prediction_krw_per_kg.gt(0).all()):
             raise ValueError("Invalid current forecasts")
+    signals = forecast_signals(short.to_dict(orient="records"), history, date)
     reference = pd.read_csv(old / "forecast_short.csv")
     runs = pd.read_csv(old / "forecast_run.csv")
     runs = runs[runs.source.eq("BACKTEST")].reset_index(drop=True)
@@ -111,6 +113,11 @@ def main():
         "forecast_short": pd.concat([reference, historical[reference.columns], short[reference.columns]]),
         "forecast_mid": mid[["run_id", "item_id", "k", "period_label", "period_start", "period_end", "p10", "p50", "p90"]],
     }
+    if signals:
+        tables["forecast_meta"] = pd.DataFrame([
+            dict(run_id=live_id, item_id=ids[item], signal=signal, alert=False, reasons=None)
+            for item, signal in signals.items()
+        ])
     args.output.mkdir(parents=True)
     for name, frame in tables.items():
         for column in ("base_date", "trade_date", "target_date", "period_start", "period_end"):
