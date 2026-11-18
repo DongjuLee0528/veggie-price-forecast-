@@ -31,7 +31,7 @@ class SeedLoader implements ApplicationRunner {
             new SeedTable("forecast_run", "id, base_date, source, model_version, created_at", true),
             new SeedTable("forecast_short", "run_id, item_id, horizon, target_date, p10, p50, p90, base_price, model", true),
             new SeedTable("forecast_mid", "run_id, item_id, k, period_label, period_start, period_end, p10, p50, p90", false),
-            new SeedTable("forecast_meta", "run_id, item_id, signal, alert, reasons", false),
+            new SeedTable("forecast_meta", "run_id, item_id, `signal`, alert, reasons", false),
             new SeedTable("forecast_metric", "item_id, horizon, period_start, period_end, nmae, direction_acc, coverage", false)
         );
         for (SeedTable table : tables) {
