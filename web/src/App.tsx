@@ -3,13 +3,19 @@ import {
   CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { useApi } from './api'
-import type { Forecast, ForecastLog, History, Item, Point } from './types'
+import type { DirectionResult, Forecast, ForecastLog, History, Item, Point } from './types'
 
 const money = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 })
 const formatPrice = (value: number) => money.format(value)
 const percent = (value: number | null) => value === null ? '—' : `${(value * 100).toFixed(2)}%`
 const shortDate = (date: string) => date.slice(5).replace('-', '.')
 const tabs = ['예보', '가격 기록', '예측 기록'] as const
+const directionSignals: Record<string, { label: string; trend: string }> = {
+  NEXT_DAY_UP: { label: '↑ 상승 예상', trend: 'up' },
+  NEXT_DAY_DOWN: { label: '↓ 하락 예상', trend: 'down' },
+  NEXT_DAY_FLAT: { label: '— 보합 예상', trend: '' },
+  NEXT_DAY_PENDING: { label: '— 방향 판단 보류', trend: '' },
+}
 
 function LoadState({ error, retry }: { error?: string; retry: () => void }) {
   return error ? (
@@ -72,7 +78,10 @@ export function DirectionSummary({ forecast }: { forecast: Forecast }) {
     </div>
     <div className="price-summary">
       {forecast.short_term.map(point => {
-        const change = reference && point.model !== 'last_value'
+        const signal = reference && point.horizon === 1 && forecast.signal
+          ? directionSignals[forecast.signal]
+          : undefined
+        const change = !signal && reference && point.model !== 'last_value'
           ? (point.p50 / reference.price - 1) * 100
           : null
         const trend = change === null || change === 0 ? '' : change > 0 ? 'up' : 'down'
@@ -82,8 +91,8 @@ export function DirectionSummary({ forecast }: { forecast: Forecast }) {
           : Math.abs(change) < 0.05 ? '0.1% 미만' : `${change > 0 ? '+' : '−'}${Math.abs(change).toFixed(1)}%`
         return <div className="price-tile" key={point.horizon}>
           <span>{point.horizon}거래일 후</span>
-          <strong className={trend}>{direction}</strong>
-          <small>예측가 {formatPrice(point.p50)} {forecast.unit}{magnitude && ` · ${magnitude}`}</small>
+          <strong className={signal?.trend ?? trend}>{signal?.label ?? direction}</strong>
+          <small>예측가 {formatPrice(point.p50)} {forecast.unit}{magnitude && ` · ${magnitude}`}{signal && ' · 별도 방향 모델'}</small>
         </div>
       })}
     </div>
@@ -152,6 +161,28 @@ function HistoryPanel({ item }: { item: string }) {
   </section>
 }
 
+function DirectionResults({ item }: { item: string }) {
+  const request = useApi<DirectionResult[]>(`/api/direction-results?item=${encodeURIComponent(item)}`)
+  if (!request.data) return <LoadState error={request.error} retry={request.retry} />
+  const direction = (value: number | null) => value === null ? '—' : value > 0 ? '상승' : value < 0 ? '하락' : '보합'
+  return <section className="live-direction-results" aria-label="최근 방향 결과">
+    <h3>최근 방향 결과 · 잠정</h3>
+    <p className="chart-note">예보 기준일과 이후 처음 수집된 거래일의 가격을 비교합니다.</p>
+    {request.data.length === 0 ? <p className="empty">저장된 예보가 없습니다.</p> :
+      <table className="direction-results-table">
+        <thead><tr><th scope="col">기준일</th><th scope="col">실측일</th><th scope="col">예측</th><th scope="col">실측</th><th scope="col">결과</th></tr></thead>
+        <tbody>{request.data.map(row => <tr key={row.base_date}>
+          <td>{shortDate(row.base_date)}</td>
+          <td>{row.target_date ? shortDate(row.target_date) : '—'}</td>
+          <td>{direction(row.predicted_direction)}</td>
+          <td>{direction(row.observed_direction)}</td>
+          <td>{row.retrospective ? '재구성' : row.hit === null ? row.predicted_direction === null ? '판단 보류' : '정산 대기'
+            : row.hit ? '적중' : '빗나감'}</td>
+        </tr>)}</tbody>
+      </table>}
+  </section>
+}
+
 function LogPanel({ item }: { item: string }) {
   const [horizon, setHorizon] = useState(10)
   const request = useApi<ForecastLog>(`/api/forecast-log?item=${encodeURIComponent(item)}&h=${horizon}`)
@@ -161,6 +192,7 @@ function LogPanel({ item }: { item: string }) {
     <div className="section-heading"><h2>예측 기록</h2><span className="unit">원/kg</span></div>
     <div className="filter-row"><div className="pills" aria-label="예측 기간">{[1, 5, 10].map(value =>
       <button key={value} aria-pressed={horizon === value} onClick={() => setHorizon(value)}>{value}거래일 후</button>)}</div></div>
+    {horizon === 1 && <DirectionResults item={item} />}
     {request.data ? <>
       <div className="metric-row">
         <div><span>평균 가격 오차</span><strong>{percent(request.data.nmae)}</strong></div>
