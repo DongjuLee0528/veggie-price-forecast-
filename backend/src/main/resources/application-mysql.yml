@@ -3,6 +3,8 @@ spring:
     url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/${DB_NAME}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+    hikari:
+      connection-init-sql: "SET time_zone = '+00:00'"
   sql:
     init:
       mode: never
