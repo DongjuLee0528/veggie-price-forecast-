@@ -16,19 +16,13 @@ from src.features.build import price_features
 ITEM = "양파"
 
 
-def record(source, history, models, ledger, now):
-    now = now.tz_convert("Asia/Seoul")
-    origin = pd.Timestamp(now.date())
-    run = json.loads(source.read_text())
-    recorded = pd.Timestamp(run["recorded_at"]).tz_convert("Asia/Seoul")
-    if pd.Timestamp(run["base_date"]) != origin or recorded.date() != now.date() or recorded > now:
-        raise ValueError("Expected today's prospectively recorded price forecast")
+def predict_directions(short_forecasts, history, models, origin):
     manifest = json.loads((models / "manifest.json").read_text())
     if manifest["features"] != FEATURES:
         raise ValueError("Candidate feature definitions differ")
     candidates = {(r["item"], r["horizon"]): r for r in manifest["routes"]
                   if r["decision"] == "candidate_for_new_period"}
-    rows = [r for r in run["forecasts"] if r["term"] == "short" and
+    rows = [r for r in short_forecasts if
             (r["item"], r["horizon"]) in candidates]
     if len(rows) != len(candidates) or {(r["item"], r["horizon"]) for r in rows} != candidates.keys():
         raise ValueError("Missing or duplicate candidate price forecast routes")
@@ -62,7 +56,7 @@ def record(source, history, models, ledger, now):
         candidate = candidates[item, horizon]
         if pd.Timestamp(candidate["train_target_through"]) >= origin:
             raise ValueError(f"Invalid candidate cutoff: {item} {horizon}")
-        if not np.isclose(row["last_value_krw_per_kg"], last, rtol=1e-12):
+        if "last_value_krw_per_kg" in row and not np.isclose(row["last_value_krw_per_kg"], last, rtol=1e-12):
             raise ValueError("Candidate and current forecast reference prices differ")
         payload = (models / candidate["file"]).read_bytes()
         digest = hashlib.sha256(payload).hexdigest()
@@ -84,6 +78,28 @@ def record(source, history, models, ledger, now):
                               mean7=int(np.sign(origin_row.avg7.iloc[0])),
                               current=None if row.get("model") == "last_value" else
                               int(np.sign(row["prediction_krw_per_kg"] - last))))
+    return forecasts
+
+
+def forecast_signals(short_forecasts, history, origin):
+    if not (OUTPUT / "manifest.json").is_file():
+        return {}
+    names = {-1: "NEXT_DAY_DOWN", 0: "NEXT_DAY_FLAT", 1: "NEXT_DAY_UP", None: "NEXT_DAY_PENDING"}
+    forecasts = predict_directions(short_forecasts, history, OUTPUT, origin)
+    if any(row["horizon"] != 1 for row in forecasts):
+        raise ValueError("Expected next-day direction signals")
+    return {row["item"]: names[row["candidate"]] for row in forecasts}
+
+
+def record(source, history, models, ledger, now):
+    now = now.tz_convert("Asia/Seoul")
+    origin = pd.Timestamp(now.date())
+    run = json.loads(source.read_text())
+    recorded = pd.Timestamp(run["recorded_at"]).tz_convert("Asia/Seoul")
+    if pd.Timestamp(run["base_date"]) != origin or recorded.date() != now.date() or recorded > now:
+        raise ValueError("Expected today's prospectively recorded price forecast")
+    forecasts = predict_directions([row for row in run["forecasts"] if row["term"] == "short"],
+                                   history, models, origin)
     report = dict(base_date=str(origin.date()), recorded_at=now.isoformat(),
                   price_model_version=run["model_version"], forecasts=forecasts)
     ledger.mkdir(parents=True, exist_ok=True)
