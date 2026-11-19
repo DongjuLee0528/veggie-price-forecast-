@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,7 +69,7 @@ class ForecastController {
                 ) END AS actual
             FROM forecast_mid m WHERE m.run_id = :run AND m.item_id = :item ORDER BY m.k
             """).param("run", run.id()).param("item", selected.id()).query(MidTerm.class).list();
-        Meta meta = db.sql("SELECT signal, alert, reasons FROM forecast_meta WHERE run_id = :run AND item_id = :item")
+        Meta meta = db.sql("SELECT `signal`, alert, reasons FROM forecast_meta WHERE run_id = :run AND item_id = :item")
             .param("run", run.id()).param("item", selected.id()).query(Meta.class).optional()
             .orElse(new Meta(null, false, null));
         List<String> reasons = meta.reasons() == null ? List.of() : mapper.readValue(meta.reasons(), new TypeReference<>() {});
@@ -123,6 +124,50 @@ class ForecastController {
             metric.periodStart(), metric.periodEnd());
     }
 
+    @GetMapping("/direction-results")
+    List<DirectionResult> directionResults(@RequestParam String item) {
+        Item selected = findItem(item);
+        return db.sql("""
+            SELECT latest.base_date, latest.created_at, latest.reasons, actual.trade_date AS target_date, actual.price_per_kg AS actual_price,
+                origin.price_per_kg AS origin_price, latest.p50, latest.model, latest.`signal`
+            FROM (
+                SELECT r.base_date, r.created_at, s.p50, s.model, m.`signal`, m.reasons,
+                    ROW_NUMBER() OVER (PARTITION BY r.base_date ORDER BY r.created_at DESC, r.id DESC) AS position
+                FROM forecast_run r
+                JOIN forecast_short s ON s.run_id = r.id AND s.item_id = :item AND s.horizon = 1
+                LEFT JOIN forecast_meta m ON m.run_id = r.id AND m.item_id = s.item_id
+                WHERE r.source = 'LIVE'
+            ) latest
+            LEFT JOIN price_daily origin ON origin.item_id = :item AND origin.trade_date = latest.base_date
+            LEFT JOIN price_daily actual ON actual.item_id = :item AND actual.trade_date = (
+                SELECT MIN(p.trade_date) FROM price_daily p
+                WHERE p.item_id = :item AND p.trade_date > latest.base_date
+            )
+            WHERE latest.position = 1
+            ORDER BY latest.base_date DESC LIMIT 30
+            """).param("item", selected.id()).query(DirectionObservation.class).list().stream()
+            .map(row -> {
+                Integer predicted = switch (row.signal() == null ? "" : row.signal()) {
+                    case "NEXT_DAY_UP" -> 1;
+                    case "NEXT_DAY_DOWN" -> -1;
+                    case "NEXT_DAY_FLAT" -> 0;
+                    case "NEXT_DAY_PENDING" -> null;
+                    default -> row.originPrice() == null || "last_value".equals(row.model())
+                        ? null : row.p50().compareTo(row.originPrice());
+                };
+                Integer observed = row.actualPrice() == null || row.originPrice() == null
+                    ? null : row.actualPrice().compareTo(row.originPrice());
+                boolean timelyPrice = row.createdAt().plusHours(9).toLocalDate().equals(row.baseDate());
+                boolean dedicated = row.signal() != null && row.signal().startsWith("NEXT_DAY_");
+                boolean timelyDirection = !dedicated || (row.reasons() != null &&
+                    row.reasons().contains("\"direction_recorded_on:" + row.baseDate() + "\""));
+                boolean retrospective = !timelyPrice || !timelyDirection;
+                Boolean hit = retrospective || predicted == null || observed == null
+                    ? null : predicted.equals(observed);
+                return new DirectionResult(row.baseDate(), row.targetDate(), predicted, observed, hit, retrospective);
+            }).toList();
+    }
+
     private Item findItem(String name) {
         return items.findByName(name).orElseThrow(() -> new ApiError(HttpStatus.NOT_FOUND, "ITEM_NOT_FOUND", "Item not found."));
     }
@@ -170,6 +215,10 @@ class ForecastController {
     record HistoryView(String item, String unit, String range, List<Point> actual, List<Point> lastYear) {}
     record LogPoint(LocalDate targetDate, LocalDate madeOn, BigDecimal p10, BigDecimal p50, BigDecimal p90,
                     BigDecimal actual, String source) {}
+    record DirectionObservation(LocalDate baseDate, LocalDateTime createdAt, String reasons, LocalDate targetDate, BigDecimal actualPrice,
+                                BigDecimal originPrice, BigDecimal p50, String model, String signal) {}
+    record DirectionResult(LocalDate baseDate, LocalDate targetDate, Integer predictedDirection,
+                           Integer observedDirection, Boolean hit, boolean retrospective) {}
     record Metric(LocalDate periodStart, LocalDate periodEnd, BigDecimal nmae, BigDecimal directionAcc, BigDecimal coverage) {}
     record LogView(String item, int h, List<LogPoint> points, BigDecimal nmae, BigDecimal directionAcc, BigDecimal coverage,
                    LocalDate periodStart, LocalDate periodEnd) {}
