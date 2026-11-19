@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh wholesale prices and selected vegetable forecasts
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/back/veggie-price-forecast
+EnvironmentFile=/home/back/.env
+ExecStart=/home/back/veggie-price-forecast/.venv/bin/python -m src.pipeline.daily_refresh
+TimeoutStartSec=1800
