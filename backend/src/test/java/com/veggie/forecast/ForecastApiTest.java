@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,6 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 class ForecastApiTest {
     @Autowired
     private MockMvc client;
+
+    @Autowired
+    private JdbcTemplate db;
 
     @Test
     void returnsPointForecastFromLatestLiveRun() throws Exception {
@@ -54,6 +58,27 @@ class ForecastApiTest {
             .andExpect(jsonPath("$.points[1].source").value("live"))
             .andExpect(jsonPath("$.points[1].actual").doesNotExist())
             .andExpect(jsonPath("$.direction_acc").value(1));
+    }
+
+    @Test
+    void scoresObservedDirectionAndExcludesLateDirectionSignals() throws Exception {
+        client.perform(get("/api/direction-results").param("item", "배추"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].predicted_direction").value(1))
+            .andExpect(jsonPath("$[0].observed_direction").doesNotExist())
+            .andExpect(jsonPath("$[0].hit").doesNotExist());
+        db.update("INSERT INTO price_daily (item_id, trade_date, price_per_kg) VALUES (1, '2026-10-02', 820)");
+        client.perform(get("/api/direction-results").param("item", "배추"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].target_date").value("2026-10-02"))
+            .andExpect(jsonPath("$[0].observed_direction").value(-1))
+            .andExpect(jsonPath("$[0].hit").value(false));
+        db.update("INSERT INTO forecast_meta (run_id, item_id, `signal`, reasons) VALUES (1, 1, 'NEXT_DAY_DOWN', ?)",
+            "[\"direction_recorded_on:2026-10-02\"]");
+        client.perform(get("/api/direction-results").param("item", "배추"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].retrospective").value(true))
+            .andExpect(jsonPath("$[0].hit").doesNotExist());
     }
 
     @Test
