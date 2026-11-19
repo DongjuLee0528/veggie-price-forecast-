@@ -386,6 +386,51 @@ September production refit against later actual prices. To reproduce the separat
 LightGBM direction-priority tuning experiment, run
 `.venv/bin/python -m src.models.tune_direction` from the project root.
 
-The MySQL read profile uses the same `db/schema.sql` and the `DB_*` environment
-variables. A MySQL server, schema installation and batch upsert are needed for
-that profile. Local H2 validation does not require MySQL.
+The MySQL read profile uses `db/schema.sql` and the `DB_*` environment variables.
+Install the schema and load the initial dashboard data before starting the backend.
+Local H2 validation does not require MySQL.
+
+On the machine with the Python project and current model exports, install the
+`mysql` client and run the following after the collection and forecast jobs finish.
+Configure the database environment variables for the job, or use the project's
+local environment file as shown here:
+
+```bash
+.venv/bin/python -m dotenv -f .env run --override -- \
+  .venv/bin/python -m src.db.sync_mysql
+```
+
+The sync reads settlement reports under `outputs/wholesale_verify/mafra_settlement`
+and the latest complete `outputs/selected_forecasts_YYYYMMDD` export with its
+matching price features. Use `--prices-only` to publish prices independently.
+A retry preserves existing prices and reuses the same forecast run. Schedule the
+command on the machine that produces those files, after the jobs that write them.
+
+
+### Ubuntu settlement refresh
+
+Copy the repository to `/home/back/veggie-price-forecast` with its input data,
+model artifacts in `results/`, and forecast and settlement files in `outputs/`.
+These directories include artifacts that are not in Git. Create the Python
+environment there rather than copying the macOS environment. Install the
+`mysql` client, and configure `MAFRA_WHOLESALE_API_KEY` and the `DB_*` variables
+in `/home/back/.env`. The key must permit requests from the batch host.
+
+```bash
+cd /home/back/veggie-price-forecast
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+sudo install -m 644 deploy/veggie-refresh.service deploy/veggie-refresh.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now veggie-refresh.timer
+sudo systemctl start veggie-refresh.service
+```
+
+The job checks every three hours at minute 15 in Korea time. It skips dates
+with complete settlement prices and revisits incomplete dates in the last
+three days. It publishes available prices independently and waits for all five items
+before issuing an origin-day forecast. If a day arrives after midnight, its
+prices can still be published without backdating a forecast. View job output
+with `journalctl -u veggie-refresh.service`. The web direction results use
+the next collected trading price for provisional comparison. Formal scores
+still use the finalized settlement CSVs.
