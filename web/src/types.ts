@@ -15,6 +15,7 @@ export type Forecast = {
   base_date: string
   unit: string
   model_version: string
+  signal?: string | null
   recent_actual: Point[]
   short_term: ShortTerm[]
   mid_term: { k: number; period_start: string; period_end: string; p50: number; actual: number | null }[]
@@ -33,4 +34,13 @@ export type ForecastLog = {
   direction_acc: number | null
   period_start: string | null
   period_end: string | null
+}
+
+export type DirectionResult = {
+  base_date: string
+  target_date: string | null
+  predicted_direction: number | null
+  observed_direction: number | null
+  hit: boolean | null
+  retrospective: boolean
 }
