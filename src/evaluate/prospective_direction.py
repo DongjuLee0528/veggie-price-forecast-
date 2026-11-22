@@ -16,12 +16,15 @@ from src.features.build import price_features
 ITEM = "양파"
 
 
-def predict_directions(short_forecasts, history, models, origin):
+def predict_directions(short_forecasts, history, models, origin, *, allow_partial=False):
     manifest = json.loads((models / "manifest.json").read_text())
     if manifest["features"] != FEATURES:
         raise ValueError("Candidate feature definitions differ")
     candidates = {(r["item"], r["horizon"]): r for r in manifest["routes"]
                   if r["decision"] == "candidate_for_new_period"}
+    if allow_partial:
+        selected = {r["item"] for r in short_forecasts}
+        candidates = {key: route for key, route in candidates.items() if key[0] in selected}
     rows = [r for r in short_forecasts if
             (r["item"], r["horizon"]) in candidates]
     if len(rows) != len(candidates) or {(r["item"], r["horizon"]) for r in rows} != candidates.keys():
@@ -85,7 +88,7 @@ def forecast_signals(short_forecasts, history, origin):
     if not (OUTPUT / "manifest.json").is_file():
         return {}
     names = {-1: "NEXT_DAY_DOWN", 0: "NEXT_DAY_FLAT", 1: "NEXT_DAY_UP", None: "NEXT_DAY_PENDING"}
-    forecasts = predict_directions(short_forecasts, history, OUTPUT, origin)
+    forecasts = predict_directions(short_forecasts, history, OUTPUT, origin, allow_partial=True)
     if any(row["horizon"] != 1 for row in forecasts):
         raise ValueError("Expected next-day direction signals")
     return {row["item"]: names[row["candidate"]] for row in forecasts}

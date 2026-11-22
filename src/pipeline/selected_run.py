@@ -15,9 +15,7 @@ from src.models.train_lgbm import model_inputs
 from src.pipeline.predict_mid import predict_mid
 
 
-def run(origin, inputs, output):
-    if output.exists():
-        raise FileExistsError(output)
+def operational_inputs(origin, inputs):
     settlement = WORK / "mafra_settlement"
     today = pd.read_csv(settlement / f"daily_{origin:%Y%m%d}.csv")
     expected_items = {item for _, item, _ in EXPECTED}
@@ -26,9 +24,25 @@ def run(origin, inputs, output):
     valid = today.observed_markets.gt(0) & today.review_markets.eq(0) & today.unconfirmed_markets.eq(0)
     valid &= today.provisional_price_per_kg.gt(0) & today.volume_kg.gt(0)
     missing = expected_items - set(today.loc[valid, "item"])
-    if missing:
-        raise ValueError(f"No usable origin settlement for {origin.date()}: {', '.join(sorted(missing))}")
     prices, features = prepare_inputs(origin, inputs)
+    pending = {item: "Origin settlement is incomplete" for item in missing}
+    for item in expected_items - missing:
+        history = prices.loc[prices.item.eq(item), "price_per_kg"]
+        required = features.loc[features.item.eq(item)].drop(columns=["date", "item", "yoy"], errors="ignore")
+        if history.tail(29).isna().any() or not np.isfinite(required.to_numpy(dtype=float)).all():
+            pending[item] = "Recent trading prices are incomplete"
+    return prices, features, pending
+
+
+def run(origin, inputs, output):
+    if output.exists():
+        raise FileExistsError(output)
+    expected_items = {item for _, item, _ in EXPECTED}
+    settlement = WORK / "mafra_settlement"
+    prices, features, pending = operational_inputs(origin, inputs)
+    available = expected_items - pending.keys()
+    if not available:
+        raise ValueError("No items have complete operational inputs")
     references = prices[prices.date.eq(origin)].set_index("item").price_per_kg
     features = features.set_index("item")
     models = ROOT / "results"
@@ -62,6 +76,8 @@ def run(origin, inputs, output):
                    for item in sorted(expected_items - {"감자 수미"}))]
     shorts = []
     for _, item, horizon in sorted(route for route in EXPECTED if route[0] == "short"):
+        if item not in available:
+            continue
         row = features.loc[[item]].assign(horizon=horizon)
         base = float(row.base_price.iloc[0])
         last = float(references.loc[item])
@@ -112,7 +128,9 @@ def run(origin, inputs, output):
                            model=name, source="mafra_api_provisional"))
     short = dict(base_date=str(origin.date()), unit="KRW/kg", source="mafra_api_provisional",
                  forecasts=shorts)
-    mid = predict_mid(inputs, models, selected_pepper=True)
+    mid = predict_mid(inputs, models, selected_pepper=True, items=available)
+    for report in (short, mid):
+        report["pending_items"] = pending
     output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=output.parent) as temp:
         staging = Path(temp) / "selected"
@@ -127,12 +145,20 @@ def run(origin, inputs, output):
 
 def main():
     parser = argparse.ArgumentParser(description="Run and record the fixed short- and mid-term models for today.")
-    parser.parse_args()
+    parser.add_argument("--date", type=pd.Timestamp)
+    args = parser.parse_args()
     now = pd.Timestamp.now(tz="Asia/Seoul")
-    origin = pd.Timestamp(now.date())
+    today = pd.Timestamp(now.date())
+    origin = args.date.normalize() if args.date is not None else today
+    if origin > today:
+        parser.error("Forecast origin cannot be in the future")
     inputs = WORK / f"forecast_inputs_{origin:%Y%m%d}"
     output = ROOT / "outputs" / f"selected_forecasts_{origin:%Y%m%d}"
     ledger = ROOT / "outputs/production_prospective"
+    if output.exists():
+        previous = json.loads((output / "short/forecast.json").read_text())
+        if previous.get("pending_items"):
+            output = output.with_name(output.name + now.strftime("_%H%M%S%f"))
     try:
         if output.exists():
             raise FileExistsError(output)
@@ -140,12 +166,24 @@ def main():
         with TemporaryDirectory(dir=output.parent) as temp:
             staging = Path(temp) / "forecast"
             artifacts = run(origin, inputs, staging)
-            path = record(staging, inputs / "price_features.parquet", inputs / "prices.parquet",
-                          artifacts, ledger, pd.Timestamp.now(tz="Asia/Seoul"))
+            if origin == today:
+                report = json.loads((staging / "short/forecast.json").read_text())
+                partial = bool(report.get("pending_items"))
+                destination = ledger / output.name if partial else ledger
+                path = record(staging, inputs / "price_features.parquet", inputs / "prices.parquet",
+                              artifacts, destination, pd.Timestamp.now(tz="Asia/Seoul"), allow_partial=partial)
+            else:
+                for term in ("short", "mid"):
+                    report_path = staging / term / "forecast.json"
+                    report = json.loads(report_path.read_text())
+                    report.update(generated_at=pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
+                                  run_type="delayed_settlement")
+                    report_path.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False))
+                path = output
             staging.rename(output)
     except (ValueError, FileNotFoundError, FileExistsError) as exc:
         parser.exit(1, f"{exc}\n")
-    print(f"Saved 25 forecasts and prospective record: {path}")
+    print(f"Saved selected forecasts: {output}; record: {path}")
 
 
 if __name__ == "__main__":

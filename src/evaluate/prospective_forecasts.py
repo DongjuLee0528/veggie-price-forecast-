@@ -20,7 +20,7 @@ def model_manifest(paths):
             for path in sorted(set(paths))]
 
 
-def record(forecast_dir, features_path, actuals_path, artifacts, ledger, now):
+def record(forecast_dir, features_path, actuals_path, artifacts, ledger, now, *, allow_partial=False):
     forecasts = []
     origin = pd.Timestamp(now.date())
     for term in ("short", "mid"):
@@ -39,16 +39,20 @@ def record(forecast_dir, features_path, actuals_path, artifacts, ledger, now):
             if not math.isfinite(row["prediction_krw_per_kg"]) or row["prediction_krw_per_kg"] <= 0:
                 raise ValueError("Expected positive forecast prices")
             forecasts.append(dict(row, term=term))
-    if (len(forecasts) != len(EXPECTED)
-            or {(row["term"], row["item"], row["horizon"]) for row in forecasts} != EXPECTED):
+    selected = {row["item"] for row in forecasts} if allow_partial else ITEMS
+    expected = {route for route in EXPECTED if route[1] in selected}
+    if (not expected or len(forecasts) != len(expected)
+            or {(row["term"], row["item"], row["horizon"]) for row in forecasts} != expected):
         raise ValueError("Expected 25 short- and mid-term forecast routes")
     features = pd.read_parquet(features_path)
     prices = features.loc[features.date.eq(origin)].set_index("item").base_price
-    if set(prices.index) != ITEMS or not prices.index.is_unique or not prices.gt(0).all():
+    prices = prices.reindex(sorted(selected))
+    if not prices.index.is_unique or not prices.gt(0).all():
         raise ValueError("Missing origin reference prices")
     actuals = pd.read_parquet(actuals_path, columns=["date", "item", "price_per_kg"])
     last = actuals.loc[actuals.date.eq(origin) & actuals.item.isin(ITEMS)].set_index("item").price_per_kg
-    if set(last.index) != ITEMS or not last.index.is_unique or not last.gt(0).all() or not np.isfinite(last).all():
+    last = last.reindex(sorted(selected))
+    if not last.index.is_unique or not last.gt(0).all() or not np.isfinite(last).all():
         raise ValueError("Expected all five observed origin prices for the last-value benchmark")
     manifest = model_manifest(artifacts)
     if not manifest or len({row["name"] for row in manifest}) != len(manifest):

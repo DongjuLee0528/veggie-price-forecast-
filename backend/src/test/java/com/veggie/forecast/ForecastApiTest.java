@@ -41,6 +41,17 @@ class ForecastApiTest {
     }
 
     @Test
+    void retainsItemForecastAndMarksPendingWhenOtherItemsAdvance() throws Exception {
+        db.update("INSERT INTO forecast_run (id, base_date, source, model_version, created_at) "
+            + "VALUES (3, '2026-10-02', 'LIVE', 'partial', '2026-10-02 12:00:00')");
+        client.perform(get("/api/forecast").param("item", "배추"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.base_date").value("2026-09-30"))
+            .andExpect(jsonPath("$.short_term.length()").value(3))
+            .andExpect(jsonPath("$.data_pending").value(true));
+    }
+
+    @Test
     void returnsPreviousYearAlignedToTheSelectedPeriod() throws Exception {
         client.perform(get("/api/history").param("item", "배추").param("range", "1m"))
             .andExpect(status().isOk())

@@ -14,6 +14,7 @@ export type Forecast = {
   type: string
   base_date: string
   unit: string
+  data_pending?: boolean
   model_version: string
   signal?: string | null
   recent_actual: Point[]

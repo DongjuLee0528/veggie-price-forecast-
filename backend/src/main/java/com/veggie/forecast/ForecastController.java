@@ -73,8 +73,13 @@ class ForecastController {
             .param("run", run.id()).param("item", selected.id()).query(Meta.class).optional()
             .orElse(new Meta(null, false, null));
         List<String> reasons = meta.reasons() == null ? List.of() : mapper.readValue(meta.reasons(), new TypeReference<>() {});
+        LocalDate latestDate = db.sql("SELECT MAX(base_date) FROM forecast_run WHERE source = 'LIVE'")
+            .query(LocalDate.class).single();
+        LocalDate latestPrice = db.sql("SELECT MAX(trade_date) FROM price_daily WHERE item_id = :item")
+            .param("item", selected.id()).query(LocalDate.class).optional().orElse(run.baseDate());
+        boolean dataPending = run.baseDate().isBefore(latestDate) || run.baseDate().isBefore(latestPrice);
         return new ForecastView(item, selected.type(), run.baseDate(), selected.unit(), run.modelVersion(),
-            recent, shortTerm, midTerm, meta.signal(), reasons, meta.alert());
+            recent, shortTerm, midTerm, meta.signal(), reasons, meta.alert(), dataPending);
     }
 
     @GetMapping("/history")
@@ -211,7 +216,7 @@ class ForecastController {
     record Meta(String signal, boolean alert, String reasons) {}
     record ForecastView(String item, String type, LocalDate baseDate, String unit, String modelVersion,
                         List<Point> recentActual, List<ShortTerm> shortTerm, List<MidTerm> midTerm,
-                        String signal, List<String> reasons, boolean alert) {}
+                        String signal, List<String> reasons, boolean alert, boolean dataPending) {}
     record HistoryView(String item, String unit, String range, List<Point> actual, List<Point> lastYear) {}
     record LogPoint(LocalDate targetDate, LocalDate madeOn, BigDecimal p10, BigDecimal p50, BigDecimal p90,
                     BigDecimal actual, String source) {}

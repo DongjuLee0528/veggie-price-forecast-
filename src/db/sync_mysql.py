@@ -56,12 +56,18 @@ def forecast_rows(directory, inputs_root, today):
         raise ValueError("Incompatible short and mid forecast exports")
     records = [(term, row) for term, report in (("short", short), ("mid", mid))
                for row in report["forecasts"]]
-    if len(records) != len(EXPECTED) or {(term, row["item"], row["horizon"]) for term, row in records} != EXPECTED:
-        raise ValueError("Expected all 25 selected forecast routes")
+    pending = short.get("pending_items", {})
+    if pending != mid.get("pending_items", {}) or not set(pending) < ITEMS:
+        raise ValueError("Invalid pending forecast items")
+    selected_items = ITEMS - pending.keys()
+    expected = {route for route in EXPECTED if route[1] in selected_items}
+    if len(records) != len(expected) or {(term, row["item"], row["horizon"]) for term, row in records} != expected:
+        raise ValueError("Expected all selected routes for every available item")
     inputs = inputs_root / f"forecast_inputs_{origin:%Y%m%d}"
     features = pd.read_parquet(inputs / "price_features.parquet")
     base = features.loc[features.date.eq(origin)].set_index("item").base_price
-    if not base.index.is_unique or set(base.index) != ITEMS or not base.gt(0).all():
+    base = base.reindex(sorted(selected_items))
+    if not base.index.is_unique or not base.gt(0).all():
         raise ValueError("Missing forecast reference prices")
     short_rows, mid_rows = [], []
     for term, row in records:
@@ -134,7 +140,7 @@ def sync_sql(prices, forecast):
 
 def main():
     parser = argparse.ArgumentParser(description="Publish saved settlement prices and selected forecasts to MySQL.")
-    parser.add_argument("--forecast-dir", type=Path, help="Publish a specific complete selected forecast export.")
+    parser.add_argument("--forecast-dir", type=Path, help="Publish a specific selected forecast export.")
     parser.add_argument("--prices-only", action="store_true", help="Publish prices without processing any forecast.")
     args = parser.parse_args()
     if args.prices_only and args.forecast_dir is not None:
@@ -149,15 +155,21 @@ def main():
     inputs_root = outputs / "wholesale_verify"
     today = pd.Timestamp.now(tz="Asia/Seoul").normalize().tz_localize(None)
     selected = args.forecast_dir
-    if selected is None and not args.prices_only:
-        selected = max((path.parent.parent for path in outputs.glob("selected_forecasts_????????/short/forecast.json")
-                        if (path.parent.parent / "mid/forecast.json").is_file()), default=None)
-    forecast = forecast_rows(selected, inputs_root, today) if selected else None
+    directories = [] if args.prices_only else [selected] if selected else sorted(
+        path.parent.parent for path in outputs.glob("selected_forecasts_*/short/forecast.json")
+        if (path.parent.parent / "mid/forecast.json").is_file())
+    forecasts = [forecast_rows(path, inputs_root, today) for path in directories] or [None]
     prices = list(price_rows(inputs_root / "mafra_settlement", today))
     command = [client, "--no-defaults", "--protocol=TCP", "--connect-timeout=5",
                "--default-character-set=utf8mb4", "--host", os.environ["DB_HOST"],
                "--port", os.getenv("DB_PORT") or "3306", "--user", os.environ["DB_USER"],
                "--database", os.environ["DB_NAME"], "--batch", "--skip-column-names"]
+    for forecast in forecasts:
+        publish(prices, forecast, command, parser)
+        prices = []
+
+
+def publish(prices, forecast, command, parser):
     try:
         result = subprocess.run(command, input="\n".join(sync_sql(prices, forecast)), text=True,
                                 capture_output=True, timeout=60,

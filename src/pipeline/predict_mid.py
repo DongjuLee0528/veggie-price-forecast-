@@ -15,7 +15,7 @@ from src.models.tune_mid import ets_predictions
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def predict_mid(inputs, model_results, *, selected_pepper=False):
+def predict_mid(inputs, model_results, *, selected_pepper=False, items=None):
     prices = pd.read_parquet(inputs / "prices.parquet")
     features = pd.read_parquet(inputs / "price_features.parquet")
     if set(features.item) != ITEMS or features.item.duplicated().any():
@@ -38,8 +38,11 @@ def predict_mid(inputs, model_results, *, selected_pepper=False):
         2: "ets_no_trend", 3: "ets_no_trend_with_sarimax"
     }:
         raise ValueError("Unexpected potato mid-term routes")
+    selected = ITEMS if items is None else set(items)
+    if not selected or not selected <= ITEMS:
+        raise ValueError("Invalid selected items")
     records = []
-    for item in sorted(ITEMS):
+    for item in sorted(selected):
         daily = prices.loc[prices.item.eq(item)]
         history = daily.loc[daily.dekad.le(completed)]
         means = history.groupby("dekad").price_per_kg.mean()

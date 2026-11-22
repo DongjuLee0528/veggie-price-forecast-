@@ -107,6 +107,11 @@ function ForecastPanel({ forecast }: { forecast: Forecast }) {
     ...forecast.short_term.map(point => ({ x: point.horizon, label: `+${point.horizon}거래일`, estimate: point.p50 })),
   ]
   return <>
+    {forecast.data_pending && <section className="forecast-panel" role="status">
+      <h2>자료 확인 중</h2>
+      <p>최신 예측에 필요한 자료를 확인하고 있습니다. 마지막 정상 예측을 표시합니다.</p>
+      <p>이 품목의 예측 기준일: {forecast.base_date}</p>
+    </section>}
     <DirectionSummary forecast={forecast} />
     <section className="forecast-panel" aria-labelledby="forecast-title">
       <div className="section-heading">

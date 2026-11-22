@@ -40,8 +40,8 @@ def prepare_inputs(origin, output):
 
     features = price_features(prices)
     current = features[features.date.eq(origin)].copy()
-    if set(current.item) != ITEMS:
-        raise ValueError("Expected all five items at forecast origin")
+    current = current.set_index("item").reindex(sorted(ITEMS)).rename_axis("item").reset_index()
+    current["date"] = origin
     columns = current.columns.drop(["date", "item"])
     readiness = current[["date", "item"]].copy()
     readiness["missing_price_features"] = current[columns].apply(
