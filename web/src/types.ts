@@ -38,6 +38,9 @@ export type ForecastLog = {
 }
 
 export type DirectionResult = {
+  origin_price: number | null
+  predicted_price: number
+  actual_price: number | null
   base_date: string
   target_date: string | null
   predicted_direction: number | null
