@@ -93,6 +93,22 @@ class ForecastApiTest {
     }
 
     @Test
+    void matchesHorizonToObservedTradesAfterBackfill() throws Exception {
+        for (int day = 2; day <= 11; day++) {
+            db.update("INSERT INTO price_daily (item_id, trade_date, price_per_kg) VALUES (1, ?, 900)",
+                java.time.LocalDate.of(2026, 10, day));
+        }
+        for (int horizon : new int[] {5, 10}) {
+            client.perform(get("/api/direction-results").param("item", "배추").param("h", String.valueOf(horizon)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].target_date").value(java.time.LocalDate.of(2026, 10, horizon + 1).toString()));
+        }
+        db.update("INSERT INTO price_daily (item_id, trade_date, price_per_kg) VALUES (1, '2026-10-01', 880)");
+        client.perform(get("/api/direction-results").param("item", "배추").param("h", "5"))
+            .andExpect(jsonPath("$[0].target_date").value("2026-10-05"));
+    }
+
+    @Test
     void rejectsUnknownItemsAndInvalidParameters() throws Exception {
         client.perform(get("/api/forecast").param("item", "unknown"))
             .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ITEM_NOT_FOUND"));
