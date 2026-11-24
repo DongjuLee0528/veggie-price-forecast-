@@ -46,6 +46,11 @@ def price_rows(directory, today):
             yield row.item, date_value(day), float(row.provisional_price_per_kg), float(row.volume_kg)
 
 
+def export_version(payloads):
+    prefix = "api-provisional-v2-" if "origin_prices" in json.loads(payloads[0]) else "api-provisional-"
+    return prefix + hashlib.sha256(b"\x00".join(payloads)).hexdigest()[:16]
+
+
 def forecast_rows(directory, inputs_root, today):
     paths = [directory / term / "forecast.json" for term in ("short", "mid")]
     payloads = [path.read_bytes() for path in paths]
@@ -64,8 +69,11 @@ def forecast_rows(directory, inputs_root, today):
     if len(records) != len(expected) or {(term, row["item"], row["horizon"]) for term, row in records} != expected:
         raise ValueError("Expected all selected routes for every available item")
     inputs = inputs_root / f"forecast_inputs_{origin:%Y%m%d}"
-    features = pd.read_parquet(inputs / "price_features.parquet")
-    base = features.loc[features.date.eq(origin)].set_index("item").base_price
+    if "origin_prices" in short:
+        base = pd.Series(short["origin_prices"])
+    else:
+        features = pd.read_parquet(inputs / "price_features.parquet")
+        base = features.loc[features.date.eq(origin)].set_index("item").base_price
     base = base.reindex(sorted(selected_items))
     if not base.index.is_unique or not base.gt(0).all():
         raise ValueError("Missing forecast reference prices")
@@ -87,9 +95,10 @@ def forecast_rows(directory, inputs_root, today):
                 raise ValueError("Invalid mid forecast target")
             start, end = date_value(start), date_value(end)
             mid_rows.append((item, horizon, f"{start} ~ {end}", start, end, prediction))
-    version = "api-provisional-" + hashlib.sha256(b"\x00".join(payloads)).hexdigest()[:16]
-    return date_value(origin), version, short_rows, mid_rows, forecast_signals(
-        short["forecasts"], inputs / "prices.parquet", origin)
+    version = export_version(payloads)
+    signals = short["signals"] if "signals" in short else forecast_signals(short["forecasts"], inputs / "prices.parquet", origin)
+    issued = pd.Timestamp(short["generated_at"]).tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S") if "generated_at" in short else None
+    return date_value(origin), version, short_rows, mid_rows, signals, issued
 
 
 def item_id(name):
@@ -108,17 +117,17 @@ def sync_sql(prices, forecast):
     yield "SET @price_count=0, @forecast_count=0;"
     for item, date, price, volume in prices:
         key, day = item_id(item), literal(date)
-        yield insert("price_daily", "item_id,trade_date,price_per_kg,volume_kg",
-                     [key, day, literal(price), literal(volume)],
-                     f"NOT EXISTS (SELECT 1 FROM price_daily WHERE item_id={key} AND trade_date={day})")
-        yield "SET @price_count=@price_count+ROW_COUNT();"
+        yield (f"INSERT INTO price_daily (item_id, trade_date, price_per_kg, volume_kg) "
+               f"VALUES ({key},{day},{literal(price)},{literal(volume)}) "
+               "ON DUPLICATE KEY UPDATE price_per_kg=VALUES(price_per_kg), volume_kg=VALUES(volume_kg);")
+        yield "SET @price_count=@price_count+(ROW_COUNT()>0);"
     if forecast is not None:
-        date, version, short, mid, signals = forecast
+        date, version, short, mid, signals, issued = forecast
         day, tag = literal(date), literal(version)
         yield f"SET @run = (SELECT id FROM forecast_run WHERE base_date={day} AND source='LIVE' AND model_version={tag});"
         yield "SET @new_run = (SELECT COALESCE(MAX(id),0)+1 FROM forecast_run);"
         yield insert("forecast_run", "id,base_date,source,model_version,created_at",
-                     ["@new_run", day, "'LIVE'", tag, "UTC_TIMESTAMP()"], "@run IS NULL")
+                     ["@new_run", day, "'LIVE'", tag, literal(issued) if issued else "UTC_TIMESTAMP()"], "@run IS NULL")
         yield "SET @forecast_count=ROW_COUNT(), @run=COALESCE(@run,@new_run);"
         for table, rows, columns, horizon_col in (
             ("forecast_short", short, "horizon,target_date,p50,base_price,model", "horizon"),
@@ -132,6 +141,8 @@ def sync_sql(prices, forecast):
         for item, signal in signals.items():
             key, value = item_id(item), literal(signal)
             stamp = "JSON_ARRAY(CONCAT('direction_recorded_on:', DATE(UTC_TIMESTAMP() + INTERVAL 9 HOUR)))"
+            if issued and version.startswith("api-provisional-v2-"):
+                stamp = f"JSON_ARRAY(CONCAT('direction_recorded_on:', DATE({literal(issued)} + INTERVAL 9 HOUR)))"
             yield insert("forecast_meta", "run_id,item_id,`signal`,reasons", ["@run", key, value, stamp],
                          f"NOT EXISTS (SELECT 1 FROM forecast_meta WHERE run_id=@run AND item_id={key})")
     yield "COMMIT;"
@@ -158,15 +169,26 @@ def main():
     directories = [] if args.prices_only else [selected] if selected else sorted(
         path.parent.parent for path in outputs.glob("selected_forecasts_*/short/forecast.json")
         if (path.parent.parent / "mid/forecast.json").is_file())
-    forecasts = [forecast_rows(path, inputs_root, today) for path in directories] or [None]
     prices = list(price_rows(inputs_root / "mafra_settlement", today))
     command = [client, "--no-defaults", "--protocol=TCP", "--connect-timeout=5",
                "--default-character-set=utf8mb4", "--host", os.environ["DB_HOST"],
                "--port", os.getenv("DB_PORT") or "3306", "--user", os.environ["DB_USER"],
                "--database", os.environ["DB_NAME"], "--batch", "--skip-column-names"]
-    for forecast in forecasts:
-        publish(prices, forecast, command, parser)
-        prices = []
+    publish(prices, None, command, parser)
+    if directories:
+        known = subprocess.run(command, input="SELECT model_version FROM forecast_run WHERE source='LIVE';",
+                               text=True, capture_output=True, timeout=60,
+                               env={**os.environ, "MYSQL_PWD": os.environ["DB_PASSWORD"]})
+        if known.returncode:
+            parser.exit(1, "Could not read published forecast versions.")
+        versions = set(known.stdout.splitlines())
+        for path in directories:
+            payloads = [(path / term / "forecast.json").read_bytes() for term in ("short", "mid")]
+            version = export_version(payloads)
+            if version not in versions:
+                publish([], forecast_rows(path, inputs_root, today), command, parser)
+                versions.add(version)
+
 
 
 def publish(prices, forecast, command, parser):
@@ -180,7 +202,7 @@ def publish(prices, forecast, command, parser):
         error = re.search(r"ERROR (\d+)", result.stderr)
         parser.exit(1, f"MySQL synchronization failed (error {error[1] if error else 'unknown'}).\n")
     inserted_prices, inserted_runs = result.stdout.strip().split("\t")
-    print(f"New price rows: {inserted_prices}; new forecast runs: {inserted_runs}")
+    print(f"Inserted or updated price rows: {inserted_prices}; new forecast runs: {inserted_runs}")
 
 
 if __name__ == "__main__":
