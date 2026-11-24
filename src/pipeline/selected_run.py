@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from scripts.wholesale_verify.prepare_inputs import WORK, prepare_inputs
+from src.evaluate.prospective_direction import forecast_signals
 from src.evaluate.compare_candidates import ROUTES, origin_shares
 from src.evaluate.prospective_forecasts import EXPECTED, ROOT, record
 from src.models.train_lgbm import model_inputs
@@ -32,6 +33,13 @@ def operational_inputs(origin, inputs):
         if history.tail(29).isna().any() or not np.isfinite(required.to_numpy(dtype=float)).all():
             pending[item] = "Recent trading prices are incomplete"
     return prices, features, pending
+
+
+def input_signature(prices, settlement, origin):
+    digest = hashlib.sha256(pd.util.hash_pandas_object(prices, index=False).values.tobytes())
+    market = settlement / f"markets_{origin:%Y%m%d}.json"
+    digest.update(market.read_bytes())
+    return digest.hexdigest()
 
 
 def run(origin, inputs, output):
@@ -128,9 +136,14 @@ def run(origin, inputs, output):
                            model=name, source="mafra_api_provisional"))
     short = dict(base_date=str(origin.date()), unit="KRW/kg", source="mafra_api_provisional",
                  forecasts=shorts)
+    short["origin_prices"] = {item: float(references[item]) for item in sorted(available)}
+    short["signals"] = forecast_signals(shorts, inputs / "prices.parquet", origin)
+    short["input_signature"] = input_signature(prices, settlement, origin)
     mid = predict_mid(inputs, models, selected_pepper=True, items=available)
     for report in (short, mid):
         report["pending_items"] = pending
+        report["generated_at"] = pd.Timestamp.now(tz="Asia/Seoul").isoformat()
+        report["model_hash"] = hashlib.sha256("".join(hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(set(artifacts))).encode()).hexdigest()
     output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=output.parent) as temp:
         staging = Path(temp) / "selected"
@@ -156,9 +169,7 @@ def main():
     output = ROOT / "outputs" / f"selected_forecasts_{origin:%Y%m%d}"
     ledger = ROOT / "outputs/production_prospective"
     if output.exists():
-        previous = json.loads((output / "short/forecast.json").read_text())
-        if previous.get("pending_items"):
-            output = output.with_name(output.name + now.strftime("_%H%M%S%f"))
+        output = output.with_name(output.name + now.strftime("_%H%M%S%f"))
     try:
         if output.exists():
             raise FileExistsError(output)
@@ -169,7 +180,7 @@ def main():
             if origin == today:
                 report = json.loads((staging / "short/forecast.json").read_text())
                 partial = bool(report.get("pending_items"))
-                destination = ledger / output.name if partial else ledger
+                destination = ledger / output.name if partial or "_" in output.name.removeprefix("selected_forecasts_") else ledger
                 path = record(staging, inputs / "price_features.parquet", inputs / "prices.parquet",
                               artifacts, destination, pd.Timestamp.now(tz="Asia/Seoul"), allow_partial=partial)
             else:
