@@ -124,8 +124,11 @@ def run(origin, inputs, output):
                 raise ValueError(f"Model checksum mismatch: {path.name}")
             booster = lgb.Booster(model_str=payload.decode())
             model_row = model_inputs(row, booster.feature_name())
-            if not np.isfinite(model_row.to_numpy(dtype=float)).all():
-                raise ValueError(f"Missing operational features: {item} {horizon}")
+            # Prior-year prices can be unavailable on non-trading dates, as in training.
+            required = model_row.drop(columns=["yoy"], errors="ignore")
+            missing = required.columns[required.isna().any()].tolist()
+            if missing:
+                raise ValueError(f"Missing operational features: {item} {horizon}: {missing}")
             change, = booster.predict(model_row, num_iteration=rounds, num_threads=2)
             prediction = (1 - weight) * base * (1 + float(change)) + weight * last
             artifacts.append(path)
