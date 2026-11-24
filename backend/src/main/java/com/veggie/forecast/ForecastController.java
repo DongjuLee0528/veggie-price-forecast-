@@ -105,7 +105,8 @@ class ForecastController {
     }
 
     @GetMapping("/forecast-log")
-    LogView log(@RequestParam String item, @RequestParam(defaultValue = "10") int h) {
+    LogView log(@RequestParam String item, @RequestParam(defaultValue = "10") int h,
+                @RequestParam(defaultValue = "false") boolean backtestOnly) {
         if (h != 1 && h != 5 && h != 10) {
             throw new ApiError(HttpStatus.BAD_REQUEST, "INVALID_HORIZON", "Use 1, 5 or 10 trading days.");
         }
@@ -116,10 +117,10 @@ class ForecastController {
                     p.price_per_kg AS actual, LOWER(r.source) AS source
                 FROM forecast_short s JOIN forecast_run r ON s.run_id = r.id
                 LEFT JOIN price_daily p ON p.item_id = s.item_id AND p.trade_date = s.target_date
-                WHERE s.item_id = :item AND s.horizon = :h
+                WHERE s.item_id = :item AND s.horizon = :h AND (:backtestOnly = FALSE OR r.source = 'BACKTEST')
                 ORDER BY r.base_date DESC, r.id DESC LIMIT 90
             ) recent ORDER BY made_on
-            """).param("item", selected.id()).param("h", h).query(LogPoint.class).list();
+            """).param("item", selected.id()).param("h", h).param("backtestOnly", backtestOnly).query(LogPoint.class).list();
         Metric metric = db.sql("""
             SELECT period_start, period_end, nmae, direction_acc, coverage FROM forecast_metric
             WHERE item_id = :item AND horizon = :h ORDER BY period_end DESC LIMIT 1
@@ -130,29 +131,30 @@ class ForecastController {
     }
 
     @GetMapping("/direction-results")
-    List<DirectionResult> directionResults(@RequestParam String item) {
+    List<DirectionResult> directionResults(@RequestParam String item, @RequestParam(defaultValue = "1") int h) {
+        if (h != 1 && h != 5 && h != 10) throw new ApiError(HttpStatus.BAD_REQUEST, "INVALID_HORIZON", "Use 1, 5 or 10 trading days.");
         Item selected = findItem(item);
         return db.sql("""
             SELECT latest.base_date, latest.created_at, latest.reasons, actual.trade_date AS target_date, actual.price_per_kg AS actual_price,
-                origin.price_per_kg AS origin_price, latest.p50, latest.model, latest.`signal`
+                CASE WHEN latest.model_version LIKE 'api-provisional-v2-%' THEN latest.base_price ELSE origin.price_per_kg END AS origin_price, latest.p50, latest.model, latest.`signal`
             FROM (
-                SELECT r.base_date, r.created_at, s.p50, s.model, m.`signal`, m.reasons,
-                    ROW_NUMBER() OVER (PARTITION BY r.base_date ORDER BY r.created_at DESC, r.id DESC) AS position
+                SELECT r.base_date, r.created_at, r.model_version, s.base_price, s.p50, s.model, m.`signal`, m.reasons,
+                    ROW_NUMBER() OVER (PARTITION BY r.base_date ORDER BY r.created_at, r.id) AS position
                 FROM forecast_run r
-                JOIN forecast_short s ON s.run_id = r.id AND s.item_id = :item AND s.horizon = 1
+                JOIN forecast_short s ON s.run_id = r.id AND s.item_id = :item AND s.horizon = :h
                 LEFT JOIN forecast_meta m ON m.run_id = r.id AND m.item_id = s.item_id
                 WHERE r.source = 'LIVE'
             ) latest
             LEFT JOIN price_daily origin ON origin.item_id = :item AND origin.trade_date = latest.base_date
             LEFT JOIN price_daily actual ON actual.item_id = :item AND actual.trade_date = (
-                SELECT MIN(p.trade_date) FROM price_daily p
-                WHERE p.item_id = :item AND p.trade_date > latest.base_date
+                SELECT p.trade_date FROM price_daily p
+                WHERE p.item_id = :item AND p.trade_date > latest.base_date ORDER BY p.trade_date LIMIT 1 OFFSET :skip
             )
             WHERE latest.position = 1
             ORDER BY latest.base_date DESC LIMIT 30
-            """).param("item", selected.id()).query(DirectionObservation.class).list().stream()
+            """).param("item", selected.id()).param("h", h).param("skip", h - 1).query(DirectionObservation.class).list().stream()
             .map(row -> {
-                Integer predicted = switch (row.signal() == null ? "" : row.signal()) {
+                Integer predicted = switch (h != 1 || row.signal() == null ? "" : row.signal()) {
                     case "NEXT_DAY_UP" -> 1;
                     case "NEXT_DAY_DOWN" -> -1;
                     case "NEXT_DAY_FLAT" -> 0;
@@ -163,13 +165,13 @@ class ForecastController {
                 Integer observed = row.actualPrice() == null || row.originPrice() == null
                     ? null : row.actualPrice().compareTo(row.originPrice());
                 boolean timelyPrice = row.createdAt().plusHours(9).toLocalDate().equals(row.baseDate());
-                boolean dedicated = row.signal() != null && row.signal().startsWith("NEXT_DAY_");
+                boolean dedicated = h == 1 && row.signal() != null && row.signal().startsWith("NEXT_DAY_");
                 boolean timelyDirection = !dedicated || (row.reasons() != null &&
                     row.reasons().contains("\"direction_recorded_on:" + row.baseDate() + "\""));
                 boolean retrospective = !timelyPrice || !timelyDirection;
                 Boolean hit = retrospective || predicted == null || observed == null
                     ? null : predicted.equals(observed);
-                return new DirectionResult(row.baseDate(), row.targetDate(), predicted, observed, hit, retrospective);
+                return new DirectionResult(row.baseDate(), row.targetDate(), predicted, observed, hit, retrospective, row.originPrice(), row.p50(), row.actualPrice());
             }).toList();
     }
 
@@ -223,7 +225,7 @@ class ForecastController {
     record DirectionObservation(LocalDate baseDate, LocalDateTime createdAt, String reasons, LocalDate targetDate, BigDecimal actualPrice,
                                 BigDecimal originPrice, BigDecimal p50, String model, String signal) {}
     record DirectionResult(LocalDate baseDate, LocalDate targetDate, Integer predictedDirection,
-                           Integer observedDirection, Boolean hit, boolean retrospective) {}
+                           Integer observedDirection, Boolean hit, boolean retrospective, BigDecimal originPrice, BigDecimal predictedPrice, BigDecimal actualPrice) {}
     record Metric(LocalDate periodStart, LocalDate periodEnd, BigDecimal nmae, BigDecimal directionAcc, BigDecimal coverage) {}
     record LogView(String item, int h, List<LogPoint> points, BigDecimal nmae, BigDecimal directionAcc, BigDecimal coverage,
                    LocalDate periodStart, LocalDate periodEnd) {}
