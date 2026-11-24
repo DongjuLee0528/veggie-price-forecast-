@@ -63,6 +63,7 @@ def test_refresh_publishes_latest_partial_date_and_does_not_repeat(monkeypatch, 
     monkeypatch.setattr(daily_refresh, "ROOT", tmp_path)
     monkeypatch.setattr(daily_refresh, "WORK", work)
     monkeypatch.setattr(daily_refresh, "operational_inputs", lambda *_: (None, None, {"무": "Incomplete"}))
+    monkeypatch.setattr(daily_refresh, "input_signature", lambda *_: "unchanged")
     execute = Mock()
     monkeypatch.setattr(daily_refresh, "execute", execute)
     daily_refresh.main()
@@ -70,7 +71,7 @@ def test_refresh_publishes_latest_partial_date_and_does_not_repeat(monkeypatch, 
     execute.assert_any_call("src.db.sync_mysql")
     folder = tmp_path / "outputs" / f"selected_forecasts_{latest:%Y%m%d}" / "short"
     folder.mkdir(parents=True)
-    (folder / "forecast.json").write_text(json.dumps({"forecasts": [
+    (folder / "forecast.json").write_text(json.dumps({"input_signature": "unchanged", "forecasts": [
         {"item": item} for item in sorted(ITEMS - {"무"})], "pending_items": {"무": "Incomplete"}}))
     execute.reset_mock()
     daily_refresh.main()
