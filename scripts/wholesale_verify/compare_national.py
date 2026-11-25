@@ -15,9 +15,10 @@ parser.add_argument("--gumi-pepper", action="store_true")
 parser.add_argument("--gumi-pepper-direct", action="store_true")
 parser.add_argument("--collect", nargs=2, metavar=("START", "END"))
 parser.add_argument("--cached-only", action="store_true", help="Rebuild collection reports from saved market responses.")
+parser.add_argument("--refresh-all", action="store_true", help="Fetch all markets again, including cached successes.")
 parser.add_argument("--refresh-empty", action="store_true", help="Retry markets with empty cached responses.")
 args = parser.parse_args()
-if args.refresh_empty and (not args.collect or args.cached_only):
+if (args.refresh_empty or args.refresh_all) and (not args.collect or args.cached_only):
     parser.error("--refresh-empty requires live collection")
 if args.cached_only and not args.collect:
     parser.error("--cached-only requires --collect")
@@ -130,7 +131,7 @@ if args.collect:
             received = json.loads(cache.read_text()) if cache.exists() else {}
             states = {}
             for market in markets:
-                if market not in received or (args.refresh_empty and not received[market]):
+                if args.refresh_all or market not in received or (args.refresh_empty and not received[market]):
                     if args.cached_only:
                         states[market] = "not_cached"
                         continue
@@ -147,6 +148,8 @@ if args.collect:
                     save(json.dumps(received, ensure_ascii=False), cache)
                 states[market] = "received"
 
+            if args.refresh_all and any(state.startswith("request_failed") for state in states.values()):
+                raise SystemExit("Incomplete refresh; retaining previous daily report.")
             records = [row for market in markets if states[market] == "received"
                        for row in received[market]]
             api = pd.DataFrame(records, columns=["market", "PDLT_NM", "SPCS_NM",
