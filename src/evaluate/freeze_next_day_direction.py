@@ -67,11 +67,12 @@ def main():
     boundary = radish_data.loc[radish_data.date.lt("2024-01-01"), "date"].iloc[-10]
     radish_train = radish_data.loc[radish_data.target_date.lt(boundary)]
     radish_model = lgb.LGBMClassifier(**PARAMS).fit(radish_train[radish_features], radish_train.actual_direction)
+    threshold = .65
     reproduced = {}
-    for year, expected in ((2025, (94, 64)), (2026, (81, 51))):
+    for year, expected in ((2025, (41, 28)), (2026, (42, 32))):
         test = radish_data[radish_data.date.ge(f"{year}-01-01") & radish_data.target_date.lt(f"{year}-10-01")]
         probabilities = radish_model.predict_proba(test[radish_features])
-        shown = probabilities.max(axis=1) >= .60
+        shown = probabilities.max(axis=1) >= threshold
         directions = radish_model.classes_[probabilities.argmax(axis=1)]
         correct = int((shown & test.actual_direction.eq(directions)).sum())
         if (int(shown.sum()), correct) != expected:
@@ -94,7 +95,7 @@ def main():
                       sha256=hashlib.sha256(radish_file.read_bytes()).hexdigest(),
                       classes=radish_model.classes_.tolist(), train_rows=len(radish_train),
                       train_target_through=str(radish_train.target_date.max().date()),
-                      min_probability=.60, benchmark="mean7", decision="candidate_for_new_period",
+                      min_probability=threshold, benchmark="mean7", decision="candidate_for_new_period",
                       retrospective_replay=reproduced)
         (stage / "manifest.json").write_text(
             json.dumps(dict(features=FEATURES, parameters=PARAMS, routes=[onion, potato, radish]),
