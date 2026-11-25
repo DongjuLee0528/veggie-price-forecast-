@@ -63,7 +63,9 @@ function PriceChart({ rows, forecast = false, comparison = false }: {
 }
 
 export function DirectionSummary({ forecast }: { forecast: Forecast }) {
-  const reference = forecast.recent_actual.find(point => point.date === forecast.base_date && point.price > 0)
+  const reference = forecast.model_version.startsWith("api-provisional-v2-") && forecast.short_term.length
+    ? { date: forecast.base_date, price: forecast.short_term[0].base_price }
+    : forecast.recent_actual.find(point => point.date === forecast.base_date && point.price > 0)
   return <section className="forecast-panel direction-summary" aria-labelledby="direction-title">
     <div className="section-heading">
       <div>
@@ -99,7 +101,32 @@ export function DirectionSummary({ forecast }: { forecast: Forecast }) {
   </section>
 }
 
+function PeriodPrices({ item, period }: { item: string; period: string }) {
+  const request = useApi<History>(`/api/history?item=${encodeURIComponent(item)}&range=1y`)
+  if (!request.data) return <LoadState error={request.error} retry={request.retry} />
+  const groups = new Map<string, { sum: number; count: number; end: string }>()
+  for (const point of request.data.actual) {
+    const start = new Date(point.date + 'T00:00:00Z')
+    if (period === '월별') start.setUTCDate(1)
+    else start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7)
+    const key = start.toISOString().slice(0, 10)
+    const end = new Date(start)
+    if (period === '월별') end.setUTCMonth(end.getUTCMonth() + 1, 0)
+    else end.setUTCDate(end.getUTCDate() + 6)
+    const group = groups.get(key) ?? { sum: 0, count: 0, end: end.toISOString().slice(0, 10) }
+    group.sum += point.price
+    group.count++
+    groups.set(key, group)
+  }
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date())
+  return <PriceChart rows={[...groups].slice(-12).map(([date, group]) => ({
+    x: date, label: `${shortDate(date)}~${shortDate(group.end)}${group.end >= today ? ' (진행 중)' : ''}`,
+    actual: group.sum / group.count,
+  }))} />
+}
+
 function ForecastPanel({ forecast }: { forecast: Forecast }) {
+  const [period, setPeriod] = useState("일별")
   const recent = forecast.recent_actual
   const rows = [
     ...recent.map((point, index) => ({ x: index - recent.length + 1, label: shortDate(point.date),
@@ -115,12 +142,14 @@ function ForecastPanel({ forecast }: { forecast: Forecast }) {
     <DirectionSummary forecast={forecast} />
     <section className="forecast-panel" aria-labelledby="forecast-title">
       <div className="section-heading">
-        <div><h2 id="forecast-title">가격 흐름</h2><p>최근 {recent.length}거래일 실측과 단기 예측</p></div>
+        <div><h2 id="forecast-title">가격 흐름</h2><p>{period === '일별' ? `최근 ${recent.length}거래일 실측과 단기 예측` : '거래일별 관측 가격의 평균'}</p></div>
         <span className="unit">{forecast.unit}</span>
       </div>
-      <div className="legend"><span>실제 가격</span><span className="estimate">예측 가격</span></div>
+      <div className="pills" aria-label="가격 표시 단위">{['일별', '주별', '월별'].map(unit =>
+        <button key={unit} aria-pressed={period === unit} onClick={() => setPeriod(unit)}>{unit}</button>)}</div>
+      {period === '일별' ? <><div className="legend"><span>실제 가격</span><span className="estimate">예측 가격</span></div>
       <PriceChart rows={rows} forecast />
-      <p className="chart-note">예측 지점은 품목별 거래일 기준입니다. 점선은 표시된 예측 지점을 연결합니다.</p>
+      <p className="chart-note">예측 지점은 품목별 거래일 기준입니다. 점선은 표시된 예측 지점을 연결합니다.</p></> : <PeriodPrices item={forecast.item} period={period} />}
     </section>
     {forecast.mid_term.length > 0 && <section className="forecast-panel" aria-labelledby="mid-forecast-title">
       <div className="section-heading"><h2 id="mid-forecast-title">중기 예측</h2><span className="unit">{forecast.unit}</span></div>
@@ -166,38 +195,49 @@ function HistoryPanel({ item }: { item: string }) {
   </section>
 }
 
-function DirectionResults({ item }: { item: string }) {
-  const request = useApi<DirectionResult[]>(`/api/direction-results?item=${encodeURIComponent(item)}`)
+function DirectionResults({ item, horizon }: { item: string; horizon: number }) {
+  const request = useApi<DirectionResult[]>(`/api/direction-results?item=${encodeURIComponent(item)}&h=${horizon}`)
   if (!request.data) return <LoadState error={request.error} retry={request.retry} />
   const direction = (value: number | null) => value === null ? '—' : value > 0 ? '상승' : value < 0 ? '하락' : '보합'
+  const scored = request.data.filter(row => row.hit !== null)
+  const matched = request.data.filter(row => row.actual_price !== null && !row.retrospective)
+  const rows = matched.slice().reverse().map(row => ({
+    x: row.target_date!, label: `${shortDate(row.target_date!)} (기준 ${shortDate(row.base_date)} · +${horizon}거래일)`,
+    actual: row.actual_price, estimate: row.predicted_price,
+  }))
   return <section className="live-direction-results" aria-label="최근 방향 결과">
     <h3>최근 방향 결과 · 잠정</h3>
-    <p className="chart-note">예보 기준일과 이후 처음 수집된 거래일의 가격을 비교합니다.</p>
+    <p className="chart-note">기준일 관측가와 이후 {horizon}번째 관측 거래일 가격을 비교합니다.</p>
     {request.data.length === 0 ? <p className="empty">저장된 예보가 없습니다.</p> :
       <table className="direction-results-table">
         <thead><tr><th scope="col">기준일</th><th scope="col">실측일</th><th scope="col">예측</th><th scope="col">실측</th><th scope="col">결과</th></tr></thead>
         <tbody>{request.data.map(row => <tr key={row.base_date}>
-          <td>{shortDate(row.base_date)}</td>
+          <td>{shortDate(row.base_date)}{row.origin_price !== null && ` · ${formatPrice(row.origin_price)}원/kg`}</td>
           <td>{row.target_date ? shortDate(row.target_date) : '—'}</td>
-          <td>{direction(row.predicted_direction)}</td>
-          <td>{direction(row.observed_direction)}</td>
+          <td>{direction(row.predicted_direction)} · {formatPrice(row.predicted_price)}원/kg</td>
+          <td>{row.actual_price === null ? '—' : `${direction(row.observed_direction)} · ${formatPrice(row.actual_price)}원/kg`}</td>
           <td>{row.retrospective ? '재구성' : row.hit === null ? row.predicted_direction === null ? '판단 보류' : '정산 대기'
             : row.hit ? '적중' : '빗나감'}</td>
         </tr>)}</tbody>
       </table>}
+    <p>최근 사전 예측 방향 적중률 {percent(scored.length ? scored.filter(row => row.hit).length / scored.length : null)} ({scored.length}건)</p>
+    <p>사전 예측 평균 가격 오차 {percent(matched.length ? matched.reduce((sum, row) =>
+      sum + Math.abs(row.predicted_price / row.actual_price! - 1), 0) / matched.length : null)} ({matched.length}건)</p>
+    <h3>운영 예측과 실제 가격</h3>
+    <PriceChart rows={rows} comparison />
   </section>
 }
 
 function LogPanel({ item }: { item: string }) {
   const [horizon, setHorizon] = useState(10)
-  const request = useApi<ForecastLog>(`/api/forecast-log?item=${encodeURIComponent(item)}&h=${horizon}`)
+  const request = useApi<ForecastLog>(`/api/forecast-log?item=${encodeURIComponent(item)}&h=${horizon}&backtestOnly=true`)
   const rows = request.data?.points.filter(point => point.source === 'backtest' && point.target_date !== null)
     .map(point => ({ x: point.target_date!, label: shortDate(point.target_date!), actual: point.actual, estimate: point.p50 })) ?? []
   return <section className="forecast-panel">
     <div className="section-heading"><h2>예측 기록</h2><span className="unit">원/kg</span></div>
     <div className="filter-row"><div className="pills" aria-label="예측 기간">{[1, 5, 10].map(value =>
       <button key={value} aria-pressed={horizon === value} onClick={() => setHorizon(value)}>{value}거래일 후</button>)}</div></div>
-    {horizon === 1 && <DirectionResults item={item} />}
+    <DirectionResults item={item} horizon={horizon} />
     {request.data ? <>
       <div className="metric-row">
         <div><span>평균 가격 오차</span><strong>{percent(request.data.nmae)}</strong></div>
