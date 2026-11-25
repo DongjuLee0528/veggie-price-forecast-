@@ -9,9 +9,9 @@ export function useApi<T>(path: string | null) {
   const data = path ? cache.get(path) as T | undefined : undefined
 
   useEffect(() => {
-    if (!path || cache.has(path)) return
+    if (!path) return
     const controller = new AbortController()
-    fetch(path, { signal: controller.signal }).then(async response => {
+    const load = () => fetch(path, { signal: controller.signal, cache: "no-store" }).then(async response => {
       if (!response.ok) {
         const body = await response.json().catch(() => null)
         throw new Error(body?.message ?? '서버에 연결할 수 없습니다.')
@@ -19,13 +19,16 @@ export function useApi<T>(path: string | null) {
       return response.json()
     }).then(value => {
       if (!controller.signal.aborted) {
+        setResult(null)
         cache.set(path, value)
         refresh(value => value + 1)
       }
     }).catch((error: Error) => {
       if (!controller.signal.aborted) setResult({ path, error: error.message })
     })
-    return () => controller.abort()
+    void load()
+    const timer = window.setInterval(() => { if (!document.hidden) void load() }, 300000)
+    return () => { window.clearInterval(timer); controller.abort() }
   }, [path, attempt])
 
   return {
