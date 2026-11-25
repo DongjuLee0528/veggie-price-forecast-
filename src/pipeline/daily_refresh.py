@@ -7,7 +7,7 @@ import pandas as pd
 from scripts.wholesale_verify.prepare_inputs import WORK
 from src.evaluate.prospective_forecasts import ROOT
 from src.models.compare_all_items import ITEMS
-from src.pipeline.selected_run import operational_inputs
+from src.pipeline.selected_run import input_signature, operational_inputs
 
 
 def execute(module, *args):
@@ -36,42 +36,47 @@ def main():
     cache = WORK / "mafra_settlement"
     first = pd.Timestamp("2026-10-01")
     required = list(pd.date_range(first, origin))
-    recent = list(pd.date_range(max(first, origin - pd.Timedelta(days=3)), origin))[::-1]
+    recent = list(pd.date_range(max(first, origin - pd.Timedelta(days=7)), origin))[::-1]
     missing = [day for day in required if not (cache / f"daily_{day:%Y%m%d}.csv").is_file()]
+    # Revisit one older unresolved report per cycle, oldest check first.
+    older = [day for day in required if day < recent[-1] and day not in missing
+             and not origin_ready(cache / f"daily_{day:%Y%m%d}.csv", day)]
+    overdue = sorted(older, key=lambda day: (cache / f"daily_{day:%Y%m%d}.csv").stat().st_mtime)[:1]
     failures = []
-    for day in dict.fromkeys([*recent, *missing[::-1]]):
-        path = cache / f"daily_{day:%Y%m%d}.csv"
-        if origin_ready(path, day):
-            continue
+    for day in dict.fromkeys([*recent, *missing[::-1], *overdue]):
         date = str(day.date())
         try:
-            execute("scripts.wholesale_verify.compare_national", "--collect", date, date, "--refresh-empty")
+            execute("scripts.wholesale_verify.compare_national", "--collect", date, date, "--refresh-all")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             failures.append(date)
             print(f"Collection failed for {date}; continuing.", flush=True)
     reports = ROOT / "outputs"
     ready = [day for day in required if ready_items(cache / f"daily_{day:%Y%m%d}.csv", day)]
+    candidates = set(recent + missing + overdue)
     if ready:
-        latest = max(ready)
+        candidates.add(max(ready))
+    for latest in sorted(candidates.intersection(ready), reverse=True):
         exports = sorted(reports.glob(f"selected_forecasts_{latest:%Y%m%d}*/short/forecast.json"))
-        _, _, pending = operational_inputs(latest, WORK / f"forecast_inputs_{latest:%Y%m%d}")
+        prices, _, pending = operational_inputs(latest, WORK / f"forecast_inputs_{latest:%Y%m%d}")
         available = ITEMS - pending.keys()
         if pending:
             print(f"Items awaiting complete inputs: {pending}", flush=True)
-        published = any({row["item"] for row in json.loads(path.read_text())["forecasts"]} == available
-                        for path in exports)
+        signature = input_signature(prices, cache, latest)
+        previous = json.loads(exports[-1].read_text()) if exports else {}
+        published = (previous.get("input_signature") == signature
+                     and {row["item"] for row in previous.get("forecasts", [])} == available)
         if available and not published:
             try:
                 execute("src.pipeline.selected_run", "--date", str(latest.date()))
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                execute("src.db.sync_mysql", "--prices-only")
-                raise
+                failures.append(str(latest.date()))
+                print(f"Forecast generation failed for {latest.date()}; continuing.", flush=True)
         print(f"Latest usable settlement date: {latest.date()}", flush=True)
-    else:
+    if not ready:
         print("Settlement pending; retaining existing forecast.", flush=True)
     execute("src.db.sync_mysql")
     if failures:
-        raise RuntimeError("Collection failed for dates: " + ", ".join(failures))
+        raise RuntimeError("Refresh failed for dates: " + ", ".join(failures))
 
 
 if __name__ == "__main__":
