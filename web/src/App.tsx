@@ -17,6 +17,11 @@ const directionSignals: Record<string, { label: string; trend: string }> = {
   NEXT_DAY_PENDING: { label: '— 방향 판단 보류', trend: '' },
 }
 
+function radishScore(probability?: number | null) {
+  if (probability == null) return ''
+  return probability >= 0.65 || probability <= 0.35 ? ' · 로지스틱 점수 높음' : ' · 로지스틱'
+}
+
 function LoadState({ error, retry }: { error?: string; retry: () => void }) {
   return error ? (
     <div className="status-card" role="alert">
@@ -94,7 +99,7 @@ export function DirectionSummary({ forecast }: { forecast: Forecast }) {
         return <div className="price-tile" key={point.horizon}>
           <span>{point.horizon}거래일 후</span>
           <strong className={signal?.trend ?? trend}>{signal?.label ?? direction}</strong>
-          <small>예측가 {formatPrice(point.p50)} {forecast.unit}{magnitude && ` · ${magnitude}`}{signal && ' · 별도 방향 모델'}</small>
+          <small>예측가 {formatPrice(point.p50)} {forecast.unit}{magnitude && ` · ${magnitude}`}{signal && (radishScore(forecast.radish_probability_up) || ' · 별도 방향 모델')}</small>
         </div>
       })}
     </div>
@@ -214,7 +219,7 @@ function DirectionResults({ item, horizon }: { item: string; horizon: number }) 
         <tbody>{request.data.map(row => <tr key={row.base_date}>
           <td>{shortDate(row.base_date)}{row.origin_price !== null && ` · ${formatPrice(row.origin_price)}원/kg`}</td>
           <td>{row.target_date ? shortDate(row.target_date) : '—'}</td>
-          <td>{direction(row.predicted_direction)} · {formatPrice(row.predicted_price)}원/kg</td>
+          <td>{direction(row.predicted_direction)}{radishScore(row.radish_probability_up)} · {formatPrice(row.predicted_price)}원/kg</td>
           <td>{row.actual_price === null ? '—' : `${direction(row.observed_direction)} · ${formatPrice(row.actual_price)}원/kg`}</td>
           <td>{row.retrospective ? '재구성' : row.hit === null ? row.predicted_direction === null ? '판단 보류' : '정산 대기'
             : row.hit ? '적중' : '빗나감'}</td>
