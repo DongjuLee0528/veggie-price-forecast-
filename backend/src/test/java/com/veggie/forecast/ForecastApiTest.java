@@ -27,6 +27,24 @@ class ForecastApiTest {
     private JdbcTemplate db;
 
     @Test
+    void radishReconstructionOverridesLegacyDirectionWithoutCountingAsLive() throws Exception {
+        db.update("UPDATE item SET name='무' WHERE id=1");
+        db.update("INSERT INTO forecast_meta (run_id,item_id,`signal`,reasons) VALUES (1,1,'NEXT_DAY_UP','[]')");
+        db.update("INSERT INTO radish_direction_logistic (run_id,probability_up,reconstructed,model_hash) VALUES (1,0.4,TRUE,'fixture')");
+        db.update("INSERT INTO price_daily (item_id,trade_date,price_per_kg) VALUES (1,'2026-10-02',800)");
+        client.perform(get("/api/forecast").param("item","무"))
+            .andExpect(jsonPath("$.signal").value("NEXT_DAY_DOWN"))
+            .andExpect(jsonPath("$.radish_probability_up").value(0.4));
+        client.perform(get("/api/direction-results").param("item","무"))
+            .andExpect(jsonPath("$[0].predicted_direction").value(-1))
+            .andExpect(jsonPath("$[0].retrospective").value(true))
+            .andExpect(jsonPath("$[0].hit").doesNotExist());
+        db.update("UPDATE radish_direction_logistic SET reconstructed=FALSE WHERE run_id=1");
+        client.perform(get("/api/direction-results").param("item","무"))
+            .andExpect(jsonPath("$[0].hit").value(true));
+    }
+
+    @Test
     void returnsPointForecastFromLatestLiveRun() throws Exception {
         client.perform(get("/api/items"))
             .andExpect(status().isOk()).andExpect(jsonPath("$[0].name").value("배추"));

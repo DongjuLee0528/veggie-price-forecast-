@@ -78,8 +78,16 @@ class ForecastController {
         LocalDate latestPrice = db.sql("SELECT MAX(trade_date) FROM price_daily WHERE item_id = :item")
             .param("item", selected.id()).query(LocalDate.class).optional().orElse(run.baseDate());
         boolean dataPending = run.baseDate().isBefore(latestDate) || run.baseDate().isBefore(latestPrice);
+        Double radishProbability = "무".equals(item)
+            ? db.sql("SELECT probability_up FROM radish_direction_logistic WHERE run_id=:id")
+                .param("id", run.id()).query(Double.class).optional().orElse(null)
+            : null;
+        String signal = meta.signal();
+        if ("무".equals(item)) {
+            signal = radishProbability == null ? "NEXT_DAY_PENDING" : radishProbability > .5 ? "NEXT_DAY_UP" : "NEXT_DAY_DOWN";
+        }
         return new ForecastView(item, selected.type(), run.baseDate(), selected.unit(), run.modelVersion(),
-            recent, shortTerm, midTerm, meta.signal(), reasons, meta.alert(), dataPending);
+            recent, shortTerm, midTerm, signal, reasons, meta.alert(), dataPending, radishProbability);
     }
 
     @GetMapping("/history")
@@ -135,15 +143,16 @@ class ForecastController {
         if (h != 1 && h != 5 && h != 10) throw new ApiError(HttpStatus.BAD_REQUEST, "INVALID_HORIZON", "Use 1, 5 or 10 trading days.");
         Item selected = findItem(item);
         return db.sql("""
-            SELECT latest.base_date, latest.created_at, latest.reasons, actual.trade_date AS target_date, actual.price_per_kg AS actual_price,
+            SELECT latest.base_date, latest.created_at, latest.reasons, latest.probability_up, latest.reconstructed, actual.trade_date AS target_date, actual.price_per_kg AS actual_price,
                 CASE WHEN latest.model_version LIKE 'api-provisional-v2-%' THEN latest.base_price ELSE origin.price_per_kg END AS origin_price, latest.p50, latest.model, latest.`signal`
             FROM (
-                SELECT r.base_date, r.created_at, r.model_version, s.base_price, s.p50, s.model, m.`signal`, m.reasons,
-                    ROW_NUMBER() OVER (PARTITION BY r.base_date ORDER BY r.created_at, r.id) AS position
+                SELECT r.base_date, r.created_at, r.model_version, s.base_price, s.p50, s.model, m.`signal`, m.reasons, l.probability_up, l.reconstructed,
+                    ROW_NUMBER() OVER (PARTITION BY r.base_date ORDER BY CASE WHEN l.reconstructed = FALSE THEN 0 ELSE 1 END, r.created_at, r.id) AS position
                 FROM forecast_run r
                 JOIN forecast_short s ON s.run_id = r.id AND s.item_id = :item AND s.horizon = :h
                 LEFT JOIN forecast_meta m ON m.run_id = r.id AND m.item_id = s.item_id
-                WHERE r.source = 'LIVE'
+                LEFT JOIN radish_direction_logistic l ON l.run_id=r.id AND :useLogistic=TRUE
+                WHERE (:useLogistic=FALSE AND r.source='LIVE') OR (:useLogistic=TRUE AND l.run_id IS NOT NULL)
             ) latest
             LEFT JOIN price_daily origin ON origin.item_id = :item AND origin.trade_date = latest.base_date
             LEFT JOIN price_daily actual ON actual.item_id = :item AND actual.trade_date = (
@@ -152,7 +161,7 @@ class ForecastController {
             )
             WHERE latest.position = 1
             ORDER BY latest.base_date DESC LIMIT 30
-            """).param("item", selected.id()).param("h", h).param("skip", h - 1).query(DirectionObservation.class).list().stream()
+            """).param("item", selected.id()).param("h", h).param("useLogistic", h == 1 && "무".equals(item)).param("skip", h - 1).query(DirectionObservation.class).list().stream()
             .map(row -> {
                 Integer predicted = switch (h != 1 || row.signal() == null ? "" : row.signal()) {
                     case "NEXT_DAY_UP" -> 1;
@@ -162,16 +171,17 @@ class ForecastController {
                     default -> row.originPrice() == null || "last_value".equals(row.model())
                         ? null : row.p50().compareTo(row.originPrice());
                 };
+                if (row.probabilityUp() != null) predicted = row.probabilityUp() > .5 ? 1 : -1;
                 Integer observed = row.actualPrice() == null || row.originPrice() == null
                     ? null : row.actualPrice().compareTo(row.originPrice());
                 boolean timelyPrice = row.createdAt().plusHours(9).toLocalDate().equals(row.baseDate());
                 boolean dedicated = h == 1 && row.signal() != null && row.signal().startsWith("NEXT_DAY_");
                 boolean timelyDirection = !dedicated || (row.reasons() != null &&
                     row.reasons().contains("\"direction_recorded_on:" + row.baseDate() + "\""));
-                boolean retrospective = !timelyPrice || !timelyDirection;
+                boolean retrospective = row.reconstructed() != null ? row.reconstructed() : !timelyPrice || !timelyDirection;
                 Boolean hit = retrospective || predicted == null || observed == null
                     ? null : predicted.equals(observed);
-                return new DirectionResult(row.baseDate(), row.targetDate(), predicted, observed, hit, retrospective, row.originPrice(), row.p50(), row.actualPrice());
+                return new DirectionResult(row.baseDate(), row.targetDate(), predicted, observed, hit, retrospective, row.originPrice(), row.p50(), row.actualPrice(), row.probabilityUp());
             }).toList();
     }
 
@@ -218,14 +228,14 @@ class ForecastController {
     record Meta(String signal, boolean alert, String reasons) {}
     record ForecastView(String item, String type, LocalDate baseDate, String unit, String modelVersion,
                         List<Point> recentActual, List<ShortTerm> shortTerm, List<MidTerm> midTerm,
-                        String signal, List<String> reasons, boolean alert, boolean dataPending) {}
+                        String signal, List<String> reasons, boolean alert, boolean dataPending, Double radishProbabilityUp) {}
     record HistoryView(String item, String unit, String range, List<Point> actual, List<Point> lastYear) {}
     record LogPoint(LocalDate targetDate, LocalDate madeOn, BigDecimal p10, BigDecimal p50, BigDecimal p90,
                     BigDecimal actual, String source) {}
     record DirectionObservation(LocalDate baseDate, LocalDateTime createdAt, String reasons, LocalDate targetDate, BigDecimal actualPrice,
-                                BigDecimal originPrice, BigDecimal p50, String model, String signal) {}
+                                BigDecimal originPrice, BigDecimal p50, String model, String signal, Double probabilityUp, Boolean reconstructed) {}
     record DirectionResult(LocalDate baseDate, LocalDate targetDate, Integer predictedDirection,
-                           Integer observedDirection, Boolean hit, boolean retrospective, BigDecimal originPrice, BigDecimal predictedPrice, BigDecimal actualPrice) {}
+                           Integer observedDirection, Boolean hit, boolean retrospective, BigDecimal originPrice, BigDecimal predictedPrice, BigDecimal actualPrice, Double radishProbabilityUp) {}
     record Metric(LocalDate periodStart, LocalDate periodEnd, BigDecimal nmae, BigDecimal directionAcc, BigDecimal coverage) {}
     record LogView(String item, int h, List<LogPoint> points, BigDecimal nmae, BigDecimal directionAcc, BigDecimal coverage,
                    LocalDate periodStart, LocalDate periodEnd) {}
