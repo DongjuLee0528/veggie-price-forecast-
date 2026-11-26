@@ -16,6 +16,7 @@ export type Forecast = {
   unit: string
   data_pending?: boolean
   model_version: string
+  radish_probability_up?: number | null
   signal?: string | null
   recent_actual: Point[]
   short_term: ShortTerm[]
@@ -46,5 +47,6 @@ export type DirectionResult = {
   predicted_direction: number | null
   observed_direction: number | null
   hit: boolean | null
+  radish_probability_up?: number | null
   retrospective: boolean
 }

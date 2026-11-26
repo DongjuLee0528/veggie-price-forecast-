@@ -153,6 +153,7 @@ def main():
     parser = argparse.ArgumentParser(description="Publish saved settlement prices and selected forecasts to MySQL.")
     parser.add_argument("--forecast-dir", type=Path, help="Publish a specific selected forecast export.")
     parser.add_argument("--prices-only", action="store_true", help="Publish prices without processing any forecast.")
+    parser.add_argument("--install-radish", action="store_true", help="Create and backfill the radish direction table.")
     args = parser.parse_args()
     if args.prices_only and args.forecast_dir is not None:
         parser.error("--forecast-dir and --prices-only cannot be combined")
@@ -174,6 +175,10 @@ def main():
                "--default-character-set=utf8mb4", "--host", os.environ["DB_HOST"],
                "--port", os.getenv("DB_PORT") or "3306", "--user", os.environ["DB_USER"],
                "--database", os.environ["DB_NAME"], "--batch", "--skip-column-names"]
+    from src.db.radish_directions import sync as sync_radish
+    if args.install_radish:
+        sync_radish(command, outputs, install=True)
+        return
     publish(prices, None, command, parser)
     if directories:
         known = subprocess.run(command, input="SELECT model_version FROM forecast_run WHERE source='LIVE';",
@@ -188,6 +193,8 @@ def main():
             if version not in versions:
                 publish([], forecast_rows(path, inputs_root, today), command, parser)
                 versions.add(version)
+    if not args.prices_only:
+        sync_radish(command, outputs)
 
 
 
