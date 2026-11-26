@@ -13,6 +13,7 @@ from src.evaluate.prospective_direction import forecast_signals
 from src.evaluate.compare_candidates import ROUTES, origin_shares
 from src.evaluate.prospective_forecasts import EXPECTED, ROOT, record
 from src.models.train_lgbm import model_inputs
+from src.pipeline.radish_logistic import MODEL as RADISH_MODEL, probabilities
 from src.pipeline.predict_mid import predict_mid
 
 
@@ -140,7 +141,13 @@ def run(origin, inputs, output):
     short = dict(base_date=str(origin.date()), unit="KRW/kg", source="mafra_api_provisional",
                  forecasts=shorts)
     short["origin_prices"] = {item: float(references[item]) for item in sorted(available)}
-    short["signals"] = forecast_signals(shorts, inputs / "prices.parquet", origin)
+    short["signals"] = forecast_signals([r for r in shorts if r["item"] != "무"], inputs / "prices.parquet", origin)
+    if "무" in available:
+        prob = float(probabilities(prices).loc[origin])
+        short["radish_probability_up"] = prob
+        short["radish_logistic_hash"] = hashlib.sha256(RADISH_MODEL.read_bytes()).hexdigest()
+        short["signals"]["무"] = "NEXT_DAY_UP" if prob > .5 else "NEXT_DAY_DOWN"
+        artifacts.append(RADISH_MODEL)
     short["input_signature"] = input_signature(prices, settlement, origin)
     mid = predict_mid(inputs, models, selected_pepper=True, items=available)
     for report in (short, mid):
